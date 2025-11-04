@@ -60,21 +60,32 @@ include = ["app*"]
 line-length = 100
 target-version = ["py313"]
 
+# -----------------------------
+# ruff 설정
+# -----------------------------
 [tool.ruff]
 target-version = "py313"
 line-length = 100
 fix = true
+exclude = [
+  ".venv","data",".data","build","dist"
+]
+
+[tool.ruff.lint]
 select = [
   "E","F","I","B","UP","ASYNC","SIM","RET","PIE","TID","RUF"
 ]
 ignore = [
   "E203",
 ]
-exclude = [
-  ".venv","data",".data","build","dist"
-]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
 addopts = "-q"
 # asyncio_mode = "auto"
+
+
+[tool.isort]
+profile = "black"
+line_length = 100
+src_paths = ["app"]

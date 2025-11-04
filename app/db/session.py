@@ -1,11 +1,15 @@
 # app/db/session.py
 from __future__ import annotations
-from app.core.db import engine as _engine, AsyncSessionLocal as _AsyncSessionLocal
-from app.db.base import Base
+
 import importlib
+
+from app.core.db import AsyncSessionLocal as _AsyncSessionLocal
+from app.core.db import engine as _engine
+from app.db.base import Base
 
 engine = _engine
 AsyncSessionLocal = _AsyncSessionLocal
+
 
 async def init_db() -> None:
     importlib.import_module("app.models.command")

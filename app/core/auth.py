@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 from typing import Literal
-from pydantic import BaseModel
+
 from fastapi import HTTPException, status
+from pydantic import BaseModel
+
 
 class AdminUser(BaseModel):
     id: str
     role: Literal["admin"]
+
 
 async def get_current_admin() -> AdminUser:
     # TODO: 실제 인증 로직으로 교체(JWT 쿠키 등)
@@ -16,5 +19,6 @@ async def get_current_admin() -> AdminUser:
     if user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
     return user
+
 
 __all__ = ["AdminUser", "get_current_admin"]

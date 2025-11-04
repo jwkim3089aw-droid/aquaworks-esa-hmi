@@ -5,9 +5,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.core.auth import get_current_admin, AdminUser
+from app.core.auth import AdminUser, get_current_admin
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+
 
 @router.get("/me")
 async def whoami(_admin: Annotated[AdminUser, Depends(get_current_admin)]) -> dict[str, str]:

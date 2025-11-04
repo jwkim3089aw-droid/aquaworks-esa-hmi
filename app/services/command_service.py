@@ -3,17 +3,16 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Optional
-
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.schemas.command import CommandIn, CommandOut
-from app.repositories.command_repo import CommandRepo
-from app.models.command import Command
 from app.adapters.plc.base import CommandPort
+from app.models.command import Command
+from app.repositories.command_repo import CommandRepo
+from app.schemas.command import CommandIn, CommandOut
+
 
 # -----------------------------
 # 요청 스코프 서비스
@@ -36,7 +35,7 @@ class CommandService:
         row = await self.repo.insert(
             self.session,
             id=str(uuid4()),
-            ts=datetime.now(timezone.utc),
+            ts=datetime.now(UTC),
             unit_id=body.unit_id,
             kind=body.kind,
             value=float(body.value),
@@ -47,6 +46,7 @@ class CommandService:
         )
         await self.session.commit()
         return await self.to_out(row)
+
 
 # -----------------------------
 # 백그라운드 매니저
@@ -60,7 +60,9 @@ class CommandManager:
             return
         self._task = asyncio.create_task(self._runner(port, sessionmaker))
 
-    async def _runner(self, port: CommandPort, sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+    async def _runner(
+        self, port: CommandPort, sessionmaker: async_sessionmaker[AsyncSession]
+    ) -> None:
         repo = CommandRepo()
         try:
             while True:
@@ -85,10 +87,12 @@ class CommandManager:
         except asyncio.CancelledError:
             pass
 
+
 # -----------------------------
 # 싱글턴 팩토리
 # -----------------------------
-_manager: Optional[CommandManager] = None
+_manager: CommandManager | None = None
+
 
 def get_command_service() -> CommandManager:
     global _manager

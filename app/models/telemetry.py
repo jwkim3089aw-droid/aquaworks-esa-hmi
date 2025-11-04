@@ -1,9 +1,13 @@
 # app/models/telemetry.py
 from __future__ import annotations
+
 from datetime import datetime
-from sqlalchemy.orm import Mapped, mapped_column
+
 from sqlalchemy import DateTime, Float, Integer
+from sqlalchemy.orm import Mapped, mapped_column
+
 from app.db.session import Base
+
 
 class TelemetryRow(Base):
     __tablename__ = "telemetry"

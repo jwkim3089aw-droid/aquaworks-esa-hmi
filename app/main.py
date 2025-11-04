@@ -1,16 +1,20 @@
 # app/main.py
 from __future__ import annotations
-import asyncio, contextlib
+
+import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 from typing import cast
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import get_settings, Settings
 from app.api import api_router
-from app.services.telemetry_store import get_store
 from app.api.v1.telemetry import simulator_task
+from app.core.config import Settings, get_settings
 from app.db.session import init_db
+from app.services.telemetry_store import get_store
+
 
 def create_app() -> FastAPI:
     @asynccontextmanager
@@ -20,7 +24,7 @@ def create_app() -> FastAPI:
         sim = None
 
         enable_sim = getattr(s, "ENABLE_SIMULATOR", True)
-        interval   = getattr(s, "SIM_INTERVAL_SEC", 1.0)
+        interval = getattr(s, "SIM_INTERVAL_SEC", 1.0)
         if enable_sim:
             sim = asyncio.create_task(simulator_task(get_store(), interval))
 
@@ -39,7 +43,9 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=getattr(ss, "CORS_ORIGINS", ["http://localhost:5173"]),
-        allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     def _root_sync() -> dict[str, str]:
@@ -48,5 +54,6 @@ def create_app() -> FastAPI:
 
     app.add_api_route("/", _root_sync, methods=["GET"], include_in_schema=False)
     return app
+
 
 app = create_app()

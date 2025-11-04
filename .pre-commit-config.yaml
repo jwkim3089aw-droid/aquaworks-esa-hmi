@@ -1,22 +1,31 @@
-# .pre-commit-config.yaml
-@'
 repos:
+  # ruff (Python linter)
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.6.9
     hooks:
       - id: ruff
         args: [--fix]
+
+  # black (Python code formatter)
   - repo: https://github.com/psf/black
     rev: 24.10.0
     hooks:
       - id: black
+
+  # isort (Python import sorter)
   - repo: https://github.com/pycqa/isort
     rev: 5.13.2
     hooks:
       - id: isort
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+
+  # pre-commit-hooks (official hooks like trailing-whitespace)
+  - repo: https://github.com/pre-commit/pre-commit-hooks  # [ADDED] pre-commit-hooks 레포지토리 추가
+    rev: v3.4.0
     hooks:
-      - id: end-of-file-fixer
-      - id: trailing-whitespace
-'@ | Out-File -Encoding utf8 ".pre-commit-config.yaml"
+      - id: trailing-whitespace  # [ADDED] `trailing-whitespace` 훅을 pre-commit-hooks에서 가져오기
+
+  # pre-commit/mirrors-prettier (Prettier 관련 설정) - **삭제됨**
+  # - repo: https://github.com/pre-commit/mirrors-prettier
+  #   rev: v2.6.1
+  #   hooks:
+  #     # id: end-of-file-fixer  # [REMOVED] 해당 훅을 제거
