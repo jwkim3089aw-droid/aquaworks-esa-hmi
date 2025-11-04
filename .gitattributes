@@ -1,13 +1,4 @@
-# ① .gitattributes 내용을 메모리에서 만든 뒤
-$gitattributes = @"
 * text=auto
 *.ps1 text eol=crlf
 *.bat text eol=crlf
 *.sh  text eol=lf
-"@
-
-# ② BOM 없는 UTF-8로 완전히 갈아끼움 (기존 파일 내용 전부 덮어씀)
-Set-Content -Path .gitattributes -Value $gitattributes -Encoding utf8NoBOM
-
-# ③ 혹시 모를 '|' 등 이상문자 확인 (있으면 줄번호와 함께 표시됨)
-findstr /n /r "\|" .gitattributes
