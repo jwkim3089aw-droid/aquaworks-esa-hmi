@@ -1,0 +1,6 @@
+# .gitattributes
+@'
+* text=auto
+*.ps1 text eol=crlf
+*.sh  text eol=lf
+'@ | Out-File -Encoding utf8 ".gitattributes"

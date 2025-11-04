@@ -1,0 +1,38 @@
+# .github/workflows/ci.yml
+name: ci
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.13']  # [ADDED] 프로젝트 런타임 기준
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+      - name: Install
+        run: |
+          pip install -e .[test]
+          pip install ruff black isort pytest-cov
+      - name: Lint (ruff/black/isort)
+        run: |
+          ruff check .
+          black --check .
+          isort --check-only .
+      - name: Test
+        run: |
+          pytest -q --cov=app --cov-report=xml --cov-fail-under=70
+      - name: Upload coverage.xml
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
