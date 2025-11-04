@@ -67,17 +67,10 @@ target-version = ["py313"]
 target-version = "py313"
 line-length = 100
 fix = true
-exclude = [
-  ".venv","data",".data","build","dist"
-]
 
 [tool.ruff.lint]
-select = [
-  "E","F","I","B","UP","ASYNC","SIM","RET","PIE","TID","RUF"
-]
-ignore = [
-  "E203",
-]
+select = ["E","F","I","B","UP","ASYNC","SIM","RET","PIE","TID","RUF"]
+ignore = ["E203"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
