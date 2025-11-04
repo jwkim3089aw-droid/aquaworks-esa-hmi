@@ -69,6 +69,29 @@ async def ws_telemetry(ws: WebSocket, store: StoreDep):
         pass
 
 
+@router.get("/trend")
+async def get_trend(
+    store: StoreDep,
+    fields: str | None = None,
+    hours: float = 1.0,
+    bucket_sec: int | None = None,  # TODO: 버킷 평균은 추후 구현
+):
+    since = datetime.now(UTC) - timedelta(hours=hours)
+    rows = await store.snapshot(since)
+    out = [r.model_dump() for r in rows]
+
+    # 필드 필터링
+    if fields:
+        wanted = set(f.strip() for f in fields.split(",") if f.strip())
+        for d in out:
+            for k in list(d.keys()):
+                if k not in wanted and k != "ts":
+                    d.pop(k, None)
+
+    # TODO: bucket_sec가 주어지면 ts를 bucket_sec로 그룹핑해서 평균/마지막값 집계
+    return out
+
+
 async def simulator_task(store: TelemetryStore, interval_sec: float = 1.0):
     phase = 0.0
     while True:
