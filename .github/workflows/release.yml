@@ -1,1 +1,21 @@
-﻿<여기에 위의 release.yml 내용 그대로 붙여넣기>
+﻿name: release
+
+on:
+  push:
+    tags:
+      - 'v*'                     # [ADDED] 태그 푸시 시 릴리스
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
