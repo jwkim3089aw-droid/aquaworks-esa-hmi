@@ -57,3 +57,9 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+
+# health 체크
+@app.get("/health")
+def healt():
+    return {"status": "ok"}
