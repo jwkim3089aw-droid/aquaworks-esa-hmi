@@ -19,9 +19,9 @@ def create_history_table() -> (
         {"name": "msg", "label": "Message", "field": "msg"},
     ]
     rows: list[dict[str, Any]] = []
-    table = ui.table(columns=columns, rows=rows).classes("w-full")
+    with ui.card().classes("aw-card p-3 w-full"):
+        table = ui.table(columns=columns, rows=rows).classes("w-full")
 
-    # [CHANGED] create_task 없이 바로 업데이트
     def add_cmd_history(cmd: str, value: str, ok: bool, msg: str) -> None:
         nonlocal rows, table
         rows.insert(
@@ -37,6 +37,6 @@ def create_history_table() -> (
         if len(rows) > 10:
             rows = rows[:10]
         table.rows = rows
-        table.update()  # [CHANGED] 즉시 반영
+        table.update()
 
     return add_cmd_history, table, rows

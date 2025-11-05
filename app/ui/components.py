@@ -7,13 +7,11 @@ from nicegui import ui
 
 
 def metric_card(title: str) -> tuple[Any, Any, Any]:
-    """클릭 가능한 KPI 카드: (card_element, value_label, sparkline_echart) 반환"""
-    card = ui.card().classes(
-        "bg-black/30 text-white min-w-[200px] w-full cursor-pointer " "hover:bg-black/40 transition"
-    )
+    """미니멀 KPI 카드 + 스파크라인"""
+    card = ui.card().classes("aw-card p-4 min-w-[220px] w-full cursor-pointer")
     with card:
-        ui.label(title).classes("text-xs opacity-70")
-        val = ui.label("--").classes("text-2xl font-semibold")
+        ui.label(title).classes("text-xs aw-subtle")
+        val = ui.label("--").classes("text-3xl font-semibold mt-1")
         spark = ui.echart(
             {
                 "backgroundColor": "transparent",
@@ -31,9 +29,19 @@ def metric_card(title: str) -> tuple[Any, Any, Any]:
                     "splitLine": {"show": False},
                 },
                 "series": [
-                    {"type": "line", "data": [], "showSymbol": False, "lineStyle": {"width": 1}}
+                    {
+                        "type": "line",
+                        "data": [],
+                        "showSymbol": False,
+                        "smooth": True,
+                        "lineStyle": {"width": 2, "color": "#10a5a5"},
+                        "areaStyle": {
+                            "opacity": 0.15,
+                            "color": "#10a5a5",
+                        },
+                    }
                 ],
                 "tooltip": {"show": False},
             }
-        ).classes("w-full h-[44px] mt-1")
+        ).classes("w-full h-[46px] mt-2")
     return card, val, spark
