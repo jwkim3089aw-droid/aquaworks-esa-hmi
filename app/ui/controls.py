@@ -34,11 +34,11 @@ def build_top_controls(root: Any, font_scales: dict[str, int]) -> tuple[Any, Any
 
             sel_font.on_value_change(lambda e: apply_font(cast(str, e.value)))
 
-            sw_dark = ui.switch("Dark", value=False)
+            # [CHANGED] 다크 기본 ON, 토글 유지
+            sw_dark = ui.switch("Dark", value=True)
 
             def on_dark_change(e: VArgs) -> None:
-                val = cast(bool, getattr(e, "value", False))
-                if val:
+                if bool(getattr(e, "value", True)):
                     ui.dark_mode().enable()
                 else:
                     ui.dark_mode().disable()

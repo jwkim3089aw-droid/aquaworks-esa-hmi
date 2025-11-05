@@ -5,15 +5,16 @@ from typing import Any
 
 API_BASE = "http://127.0.0.1:8003"
 
-# 워터톤 팔레트 (라이트 기본, 다크 대응 색도 지정)
+# [CHANGED] 다크 테마 팔레트
 THEME: dict[str, str] = {
-    "primary": "#10a5a5",  # teal-500 계열
-    "accent": "#2563eb",  # blue-600
-    "bg": "#f6f9fc",  # 거의 화이트
-    "card": "#ffffff",
-    "border": "#e6edf5",
-    "ink": "#0f172a",  # slate-900
-    "ink_sub": "#64748b",  # slate-500
+    "primary": "#14b8a6",  # teal-500
+    "accent": "#60a5fa",  # blue-400
+    "bg": "#0b1220",  # 거의 블랙에 가까운 남색
+    "card": "#0f172a",  # 슬레이트-900 카드
+    "panel": "#0b1324",  # 패널 배경
+    "border": "#1f2937",  # 보더
+    "ink": "#e5e7eb",  # 기본 텍스트(밝음)
+    "ink_sub": "#94a3b8",  # 보조 텍스트
 }
 
 METRICS: list[dict[str, Any]] = [

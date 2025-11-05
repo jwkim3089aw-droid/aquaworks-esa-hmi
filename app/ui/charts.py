@@ -4,7 +4,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-_PALETTE = ["#10a5a5", "#2563eb", "#0ea5e9", "#0ea37a", "#f59e0b", "#7c3aed"]
+# [CHANGED] 다크에서 잘 보이는 팔레트
+_PALETTE = ["#14b8a6", "#60a5fa", "#22d3ee", "#34d399", "#fbbf24", "#a78bfa"]
 
 
 def build_trend_options(
@@ -19,9 +20,9 @@ def build_trend_options(
             "name": meta["label"],
             "position": pos,
             "offset": offset,
-            "axisLine": {"lineStyle": {"color": "#c2cfe0"}},
-            "axisLabel": {"color": "#64748b"},
-            "splitLine": {"lineStyle": {"color": "#eef2f7"}},
+            "axisLine": {"lineStyle": {"color": "#334155"}},  # [CHANGED]
+            "axisLabel": {"color": "#94a3b8"},  # [CHANGED]
+            "splitLine": {"lineStyle": {"color": "#1f2937"}},  # [CHANGED]
             "scale": True,
         }
         if meta["key"] == "pH":
@@ -31,7 +32,7 @@ def build_trend_options(
         y_axes.append(axis_conf)
 
     series: list[dict[str, Any]] = []
-    for meta in metrics:
+    for meta in metrics:  # [CHANGED] idx 제거
         series.append(
             {
                 "name": meta["label"],
@@ -52,14 +53,15 @@ def build_trend_options(
             "type": "plain",
             "top": 0,
             "data": [m["label"] for m in metrics],
-            "textStyle": {"color": "#475569"},
+            "textStyle": {"color": "#cbd5e1"},  # [CHANGED]
         },
-        "grid": {"left": 48, "right": 48, "bottom": 36, "top": 28},
+        # [CHANGED] 여백 튜닝 (라벨 겹침 방지)
+        "grid": {"left": 56, "right": 56, "bottom": 40, "top": 30},
         "xAxis": {
             "type": "category",
             "data": [],
-            "axisLine": {"lineStyle": {"color": "#c2cfe0"}},
-            "axisLabel": {"color": "#64748b"},
+            "axisLine": {"lineStyle": {"color": "#334155"}},  # [CHANGED]
+            "axisLabel": {"color": "#94a3b8"},  # [CHANGED]
         },
         "yAxis": y_axes,
         "series": series,
@@ -68,7 +70,7 @@ def build_trend_options(
             "text": "No data",
             "left": "center",
             "top": "center",
-            "textStyle": {"color": "#94a3b8"},
+            "textStyle": {"color": "#64748b"},
         },
     }
 

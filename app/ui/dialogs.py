@@ -6,37 +6,42 @@ from typing import Any
 
 from nicegui import ui
 
-from app.ui.charts import build_trend_options  # [CHANGED]
+from app.ui.charts import build_trend_options  # [UNCHANGED]
 
 
 def create_single_dialog(
     metrics: list[dict[str, Any]],
 ) -> tuple[Any, Any, Callable[[str], None], Callable[[], str | None]]:
     single_state: dict[str, str | None] = {"key": None}
-    with ui.dialog() as single_dialog, ui.card().classes("aw-panel p-4 w-[1000px] max-w-[95vw]"):
+    with (
+        ui.dialog() as single_dialog,
+        ui.card().classes("aw-panel p-4 w-[1200px] max-w-[98vw]"),
+    ):  # [CHANGED]
         single_title = ui.label("Metric").classes("aw-title text-lg mb-2")
         trend_single: Any = ui.echart(
             {
                 "backgroundColor": "transparent",
                 "tooltip": {"trigger": "axis"},
-                "grid": {"left": 50, "right": 30, "bottom": 40, "top": 30},
+                "grid": {"left": 56, "right": 40, "bottom": 48, "top": 36},  # [CHANGED]
                 "xAxis": {
                     "type": "category",
                     "data": [],
-                    "axisLine": {"lineStyle": {"color": "#c2cfe0"}},
-                    "axisLabel": {"color": "#64748b"},
+                    "axisLine": {"lineStyle": {"color": "#334155"}},
+                    "axisLabel": {"color": "#94a3b8"},
                 },
                 "yAxis": {
                     "type": "value",
                     "name": "",
-                    "axisLine": {"lineStyle": {"color": "#c2cfe0"}},
-                    "axisLabel": {"color": "#64748b"},
+                    "axisLine": {"lineStyle": {"color": "#334155"}},
+                    "axisLabel": {"color": "#94a3b8"},
                 },
                 "series": [
                     {"name": "", "type": "line", "showSymbol": False, "data": [], "smooth": True}
                 ],
             }
-        ).classes("w-[960px] h-[420px]")
+        ).classes(
+            "w-[1140px] h-[520px]"
+        )  # [CHANGED]
         ui.button("닫기", on_click=single_dialog.close).classes("aw-btn mt-3")
 
     def open_single_dialog(key: str) -> None:
@@ -57,12 +62,15 @@ def create_single_dialog(
 def create_full_trend_dialog(
     metrics: list[dict[str, Any]], axis_positions: list[tuple[str, int]]
 ) -> tuple[Any, Any]:
-    with ui.dialog() as trend_dialog, ui.card().classes("aw-panel p-4 w-[1100px] max-w-[95vw]"):
+    with (
+        ui.dialog() as trend_dialog,
+        ui.card().classes("aw-panel p-4 w-[1280px] max-w-[98vw]"),
+    ):  # [CHANGED]
         ui.label("Realtime Trend (DO, Air (L/min), MLSS, Temp, pH, Power)").classes(
             "aw-title text-lg mb-2"
         )
         trend_full: Any = ui.echart(build_trend_options(metrics, axis_positions)).classes(
-            "w-[1040px] h-[460px]"
-        )
+            "w-[1220px] h-[560px]"
+        )  # [CHANGED]
         ui.button("닫기", on_click=trend_dialog.close).classes("aw-btn mt-3")
     return trend_dialog, trend_full
