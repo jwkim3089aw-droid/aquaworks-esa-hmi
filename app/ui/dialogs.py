@@ -6,7 +6,7 @@ from typing import Any
 
 from nicegui import ui
 
-from .charts import build_trend_options
+from app.ui.charts import build_trend_options
 
 
 def create_single_dialog(

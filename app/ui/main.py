@@ -5,14 +5,14 @@ from typing import Any, cast
 
 from nicegui import ui  # [UNCHANGED]
 
-from .charts import build_trend_options
-from .commands import build_command_panel
-from .components import metric_card
-from .config import API_BASE, AXIS_POSITIONS, FONT_SCALES, METRICS
-from .controls import build_top_controls
-from .dialogs import create_full_trend_dialog, create_single_dialog
-from .history import create_history_table
-from .polling import start_polling
+from app.ui.charts import build_trend_options
+from app.ui.commands import build_command_panel
+from app.ui.components import metric_card
+from app.ui.config import API_BASE, AXIS_POSITIONS, FONT_SCALES, METRICS
+from app.ui.controls import build_top_controls
+from app.ui.dialogs import create_full_trend_dialog, create_single_dialog
+from app.ui.history import create_history_table
+from app.ui.polling import start_polling
 
 # === Theme ===
 ui.dark_mode().enable()

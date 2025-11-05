@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 from nicegui import ui
 
-from .charts import short_ts, update_multi_metric_chart
+from app.ui.charts import short_ts, update_multi_metric_chart
 
 
 async def poll_loop(
