@@ -14,19 +14,29 @@ dependencies = [
   "pydantic>=2.6",
   "pydantic-settings>=2.4",
   "sqlalchemy>=2.0",
+  "aiosqlite",
+  "influxdb-client",
 ]
 
 [project.optional-dependencies]
 ui = [
   "nicegui>=2.1",
 ]
-influx = [
-  "influxdb-client>=1.43",
+
+alembic = [
+    "alembic"
 ]
+
 science = [
   "numpy>=1.26",
-  "pandas>=2.2",
-  "scipy>=1.13"
+  "pandas",
+  "scipy>=1.13",
+  "torch",
+  "tensorboard",
+]
+adapter = [
+  "pymodbus==3.7.4",
+  "asyncua",
 ]
 dev = [
   "uvicorn>=0.30",

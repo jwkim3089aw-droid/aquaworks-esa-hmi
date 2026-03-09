@@ -1,0 +1,2 @@
+C:\Users\a\Desktop\프로젝트\ESA_HMI\code\simulator\ui_app.py
+C:\Users\a\Desktop\프로젝트\ESA_HMI\code\simulator\ui_app.py

@@ -1,11 +1,9 @@
 # app/schemas/telemetry.py
-
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel, Field, ConfigDict
 
 class Telemetry(BaseModel):
     ts: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -15,4 +13,8 @@ class Telemetry(BaseModel):
     pH: float
     air_flow: float
     power: float
-    total_energy_calc: float = 0.0
+    energy: float = 0.0
+
+    model_config = ConfigDict(
+        from_attributes=True,
+    )

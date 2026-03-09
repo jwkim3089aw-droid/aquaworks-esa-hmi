@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase 
 
 from app.core.config import get_settings
 
@@ -13,7 +14,7 @@ DATABASE_URL: str = getattr(s, "DATABASE_URL", "sqlite+aiosqlite:///./.data/esa_
 
 # sqlite면 디렉터리 보장
 if DATABASE_URL.startswith("sqlite"):
-    Path("./.data").mkdir(exist_ok=True)  # [ADDED]
+    Path("./.data").mkdir(exist_ok=True)
 
 engine = create_async_engine(
     DATABASE_URL,
@@ -27,3 +28,7 @@ AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=As
 async def get_session() -> AsyncIterator[AsyncSession]:
     async with AsyncSessionLocal() as session:
         yield session
+
+class Base(DeclarativeBase):  # [ADDED]
+    """프로젝트 전역에서 사용하는 SQLAlchemy Declarative Base"""
+    pass

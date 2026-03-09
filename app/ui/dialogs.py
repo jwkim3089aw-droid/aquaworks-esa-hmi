@@ -6,23 +6,20 @@ from typing import Any
 
 from nicegui import ui
 
-from app.ui.charts import build_trend_options  # [UNCHANGED]
+from app.ui.charts import build_trend_options
 
 
 def create_single_dialog(
     metrics: list[dict[str, Any]],
 ) -> tuple[Any, Any, Callable[[str], None], Callable[[], str | None]]:
     single_state: dict[str, str | None] = {"key": None}
-    with (
-        ui.dialog() as single_dialog,
-        ui.card().classes("aw-panel p-4 w-[1200px] max-w-[98vw]"),
-    ):  # [CHANGED]
+    with ui.dialog() as single_dialog, ui.card().classes("aw-panel p-4 w-[1200px] max-w-[98vw]"):
         single_title = ui.label("Metric").classes("aw-title text-lg mb-2")
         trend_single: Any = ui.echart(
             {
                 "backgroundColor": "transparent",
                 "tooltip": {"trigger": "axis"},
-                "grid": {"left": 56, "right": 40, "bottom": 48, "top": 36},  # [CHANGED]
+                "grid": {"left": 56, "right": 40, "bottom": 48, "top": 36},
                 "xAxis": {
                     "type": "category",
                     "data": [],
@@ -39,9 +36,7 @@ def create_single_dialog(
                     {"name": "", "type": "line", "showSymbol": False, "data": [], "smooth": True}
                 ],
             }
-        ).classes(
-            "w-[1140px] h-[520px]"
-        )  # [CHANGED]
+        ).classes("w-[1140px] h-[520px]")
         ui.button("닫기", on_click=single_dialog.close).classes("aw-btn mt-3")
 
     def open_single_dialog(key: str) -> None:
@@ -62,15 +57,12 @@ def create_single_dialog(
 def create_full_trend_dialog(
     metrics: list[dict[str, Any]], axis_positions: list[tuple[str, int]]
 ) -> tuple[Any, Any]:
-    with (
-        ui.dialog() as trend_dialog,
-        ui.card().classes("aw-panel p-4 w-[1280px] max-w-[98vw]"),
-    ):  # [CHANGED]
+    with ui.dialog() as trend_dialog, ui.card().classes("aw-panel p-4 w-[1280px] max-w-[98vw]"):
         ui.label("Realtime Trend (DO, Air (L/min), MLSS, Temp, pH, Power)").classes(
             "aw-title text-lg mb-2"
         )
         trend_full: Any = ui.echart(build_trend_options(metrics, axis_positions)).classes(
             "w-[1220px] h-[560px]"
-        )  # [CHANGED]
+        )
         ui.button("닫기", on_click=trend_dialog.close).classes("aw-btn mt-3")
     return trend_dialog, trend_full

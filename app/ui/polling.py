@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 from nicegui import ui
 
-from app.ui.charts import short_ts, update_multi_metric_chart  # [CHANGED]
+from app.ui.charts import short_ts, update_multi_metric_chart
 
 
 async def poll_loop(
@@ -25,6 +25,7 @@ async def poll_loop(
 ) -> None:
     async with httpx.AsyncClient(timeout=5.0) as client:
         while True:
+            # KPI
             try:
                 r = await client.get(f"{api_base}/api/v1/last")
                 if r.status_code == 200 and r.json():
@@ -38,6 +39,7 @@ async def poll_loop(
             except Exception as e:
                 ui.notify(f"KPI fetch error: {e}", color="negative")
 
+            # 트렌드
             try:
                 hrs = float(inp_hours.value or 0.5)
                 bkt = int(sel_bucket.value or 5)
@@ -47,11 +49,12 @@ async def poll_loop(
                 if r2.status_code == 200:
                     rows: list[dict[str, Any]] = r2.json() or []
                     xs = [short_ts(row.get("ts")) for row in rows]
-                    no_data = len(rows) == 0
-                    trend_embed.options["title"]["show"] = no_data
-                    trend_full.options["title"]["show"] = no_data
+
+                    # 임베드/풀 차트 동시 갱신
                     await update_multi_metric_chart(trend_embed, metrics, xs, rows)
                     await update_multi_metric_chart(trend_full, metrics, xs, rows)
+
+                    # 단일 지표 다이얼로그 열려있으면 갱신
                     single_key = get_single_key()
                     if single_key:
                         meta = next((m for m in metrics if m["key"] == single_key), None)
@@ -61,6 +64,8 @@ async def poll_loop(
                                 row.get(meta["key"]) for row in rows
                             ]
                             await trend_single.update()
+
+                    # KPI 스파크 갱신
                     for key, spark in sparks.items():
                         spark.options["xAxis"]["data"] = xs
                         spark.options["series"][0]["data"] = [row.get(key) for row in rows]

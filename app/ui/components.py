@@ -1,13 +1,11 @@
 # app/ui/components.py
 from __future__ import annotations
-
 from typing import Any
-
 from nicegui import ui
 
 
 def metric_card(title: str) -> tuple[Any, Any, Any]:
-    """미니멀 KPI 카드 + 스파크라인"""
+    """KPI 카드(스파크 포함)"""
     card = ui.card().classes("aw-card p-4 min-w-[220px] w-full cursor-pointer")
     with card:
         ui.label(title).classes("text-xs aw-subtle")
@@ -34,11 +32,8 @@ def metric_card(title: str) -> tuple[Any, Any, Any]:
                         "data": [],
                         "showSymbol": False,
                         "smooth": True,
-                        "lineStyle": {"width": 2, "color": "#10a5a5"},
-                        "areaStyle": {
-                            "opacity": 0.15,
-                            "color": "#10a5a5",
-                        },
+                        "lineStyle": {"width": 2, "color": "#14b8a6"},
+                        "areaStyle": {"opacity": 0.12, "color": "#14b8a6"},
                     }
                 ],
                 "tooltip": {"show": False},

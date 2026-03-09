@@ -1,0 +1,77 @@
+{
+    "version": 1,
+    "created_at": 1773034077.6430485,
+    "config_hash": "ec951a7d415ad3e1f3c67a2244bb041dc7c9a32b0272279742d03911e4039930",
+    "config": {
+        "time_scale": 1.0,
+        "max_dt": 0.5,
+        "max_real_dt": 1.0,
+        "rng_seed": 42,
+        "pump": {
+            "rated_hz": 60.0,
+            "min_hz": 15.0,
+            "rated_flow_m3h": 30.0,
+            "rated_head_m": 18.0,
+            "shutoff_head_m": 25.0,
+            "rated_power_kw": 3.7,
+            "tau_flow_s": 1.2,
+            "tau_power_s": 0.8
+        },
+        "ejector": {
+            "throat_diameter_m": 0.03,
+            "v_min_m_s": 5.0,
+            "v_span_m_s": 6.0,
+            "mu_max": 1.3,
+            "suction_eff": 0.85,
+            "tau_air_s": 1.5,
+            "submergence_m": 1.5,
+            "backpressure_scale_kpa": 30.0
+        },
+        "aeration": {
+            "kla20_ref_per_hr": 10.0,
+            "ref_air_lpm": 500.0,
+            "ref_water_m3h": 30.0,
+            "theta_kla": 1.024,
+            "our_base_mgL_hr": 20.0,
+            "theta_our": 1.07,
+            "do_noise_std": 0.01,
+            "exp_air": 0.7,
+            "exp_water": 0.3,
+            "ratio_eps": 1e-06
+        },
+        "system": {
+            "tank_volume_m3": 10.0,
+            "static_head_m": 2.0,
+            "k_loss_factor": 0.0,
+            "auto_calibrate": true,
+            "ambient_temp_c": 20.0,
+            "heat_fraction": 0.35,
+            "ua_w_per_k": 120.0,
+            "do_depth_m": 1.0
+        }
+    },
+    "state": {
+        "wall_timestamp": 1773034077.6427665,
+        "controls": {
+            "pump_hz": 30.0,
+            "valve_open_pct": 100.0
+        },
+        "flow_m3h": 12.895904304316433,
+        "head_m": 4.956521739130434,
+        "power_kw": 0.6679923791097907,
+        "air_flow_lpm": 122.77209222602376,
+        "suction_pressure_kpa": -52.36562278149083,
+        "efficiency": 0.26013933478936646,
+        "do_mgL": 0.3935930391658441,
+        "mlss_true_mgL": 2999.015010128163,
+        "mlss": 2998.1371402255395,
+        "ph": 6.963211447252036,
+        "temp_c": 20.252836947956848,
+        "energy_kwh": 8.765025158148775,
+        "sim_hour": 18.265338301499668
+    },
+    "rng_state_b64": "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",
+    "meta": {
+        "note": "ESAProcessModel snapshot"
+    }
+}

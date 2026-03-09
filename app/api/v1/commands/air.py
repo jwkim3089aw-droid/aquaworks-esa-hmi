@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
 
     def get_session() -> Coroutine[Any, Any, AsyncGenerator[_AsyncSession, None]]: ...
-
 else:
     from app.core.db import get_session
 

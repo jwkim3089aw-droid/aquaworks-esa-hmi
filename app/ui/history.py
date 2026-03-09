@@ -1,42 +1,44 @@
 # app/ui/history.py
 from __future__ import annotations
-
-from collections.abc import Callable
-from datetime import datetime
-from typing import Any
-
+from typing import List, Dict, Any
 from nicegui import ui
+from datetime import datetime
+
+HISTORY_COLUMNS = [
+    {"name": "time", "label": "Time", "field": "time", "align": "left"},
+    {"name": "cmd", "label": "Command", "field": "cmd", "align": "left"},
+    {"name": "value", "label": "Value", "field": "value", "align": "right"},
+    {"name": "ok", "label": "OK", "field": "ok", "align": "center"},
+    {"name": "msg", "label": "Message", "field": "msg", "align": "left"},
+]
 
 
-def create_history_table() -> (
-    tuple[Callable[[str, str, bool, str], None], Any, list[dict[str, Any]]]
-):
-    columns = [
-        {"name": "ts", "label": "Time", "field": "ts"},
-        {"name": "cmd", "label": "Command", "field": "cmd"},
-        {"name": "value", "label": "Value", "field": "value"},
-        {"name": "ok", "label": "OK", "field": "ok"},
-        {"name": "msg", "label": "Message", "field": "msg"},
-    ]
-    rows: list[dict[str, Any]] = []
-    with ui.card().classes("aw-card p-3 w-full"):
-        table = ui.table(columns=columns, rows=rows).classes("w-full")
+def make_history_card():
+    card = ui.card().classes("w-[720px] bg-[#0F172A] rounded-xl shadow-lg border border-[#1F2937]")
+    with card:
+        table = (
+            ui.table(columns=HISTORY_COLUMNS, rows=[], row_key="time")
+            .props("dense flat bordered")
+            .classes("w-full text-[#E5E7EB]")
+        )
+    return card, table
 
-    def add_cmd_history(cmd: str, value: str, ok: bool, msg: str) -> None:
-        nonlocal rows, table
-        rows.insert(
-            0,
+
+def add_rows(table: Any, rows: List[Dict[str, Any]]) -> None:
+    table.rows += rows
+    table.update()
+
+
+def add_history(table: Any, cmd: str, value: str, ok: bool = True, msg: str = "OK") -> None:
+    add_rows(
+        table,
+        [
             {
-                "ts": datetime.now().strftime("%H:%M:%S"),
+                "time": datetime.now().strftime("%H:%M:%S"),
                 "cmd": cmd,
                 "value": value,
-                "ok": "✔" if ok else "✖",
+                "ok": "Y" if ok else "N",
                 "msg": msg,
-            },
-        )
-        if len(rows) > 10:
-            rows = rows[:10]
-        table.rows = rows
-        table.update()
-
-    return add_cmd_history, table, rows
+            }
+        ],
+    )
