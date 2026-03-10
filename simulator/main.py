@@ -57,7 +57,7 @@ logging.getLogger("asyncua").setLevel(logging.WARNING)
 logging.getLogger("pymodbus").setLevel(logging.WARNING)
 
 # =========================================================
-# [설정 2] 🚀 메모리 맵 (3D 대시보드 연동용 밸브 피드백 추가)
+# [설정 2] 🚀 메모리 맵 (C# 표준 완벽 복원)
 # =========================================================
 AUTO_SAVE_INTERVAL = 5.0
 
@@ -68,12 +68,14 @@ CO_PUMP_AUTO = 2
 CO_VALVE_PWR = 3
 
 # 2. Modbus Holding Registers (센서 및 설정)
-HR_DO = 0
-HR_PH = 1
-HR_TEMP = 2
-HR_FLOW = 3
-HR_MLSS = 4
-HR_VALVE_CURR = 5  # 🚀 [패치] 3D 대시보드가 읽어갈 밸브 현재 상태! (마이크 ON)
+# 🎯 [핵심 패치] 사장님의 C# 코드에 명시된 순서대로 완벽하게 맞췄습니다!
+HR_DO = 0  # 0번: DO (용존산소)
+HR_MLSS = 1  # 1번: MLSS (미생물 농도)
+HR_TEMP = 2  # 2번: 온도
+HR_PH = 3  # 3번: pH (산성도)
+HR_FLOW = 4  # 4번: Air Flow (공기량)
+
+HR_VALVE_CURR = 5
 HR_PUMP_CURR = 6
 HR_POWER_CURR = 7
 HR_POWER_ACCM = 9
@@ -82,11 +84,9 @@ HR_VALVE_TARGET = 30
 HR_ID = 49
 HR_EXCPT = 52
 
-# 🎯 [핵심 패치] 저장소 경로를 `simulator/.data/` 로 영구 고정
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, ".data")
 
-# .data 폴더가 없으면 알아서 생성합니다.
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR, exist_ok=True)
     logger.info(f"📁 데이터 저장 폴더 생성 완료: {DATA_DIR}")
@@ -98,7 +98,6 @@ SAVE_FILE_PREFIX = "esa_save_data"
 # [메인 로직] 하이브리드 서버 실행
 # =========================================================
 async def run_server(opc_port: int, modbus_port: int):
-    # 🎯 [핵심 패치] 이제 파일은 무조건 `.data` 폴더 안에 쌓입니다.
     save_file = os.path.join(DATA_DIR, f"{SAVE_FILE_PREFIX}_{modbus_port}.json")
     rtu_id = modbus_port - 5020 + 1
 
@@ -156,7 +155,6 @@ async def run_server(opc_port: int, modbus_port: int):
         idx = await opc_server.register_namespace(uri)
         folder = await opc_server.nodes.objects.add_folder(f"ns={idx};s=ESA_System", "ESA_System")
 
-        # OPC UA 노드 생성
         p_do = await folder.add_variable(f"ns={idx};s=DO", "DO", 0.0)
         p_ph = await folder.add_variable(f"ns={idx};s=pH", "pH", 0.0)
         p_temp = await folder.add_variable(f"ns={idx};s=Temp", "Temp", 0.0)
@@ -222,9 +220,6 @@ async def run_server(opc_port: int, modbus_port: int):
                     store.setValues(3, HR_PUMP_TARGET, [int(opc_hz * 10)])
 
                 if abs(mb_valve - esa_model.valve_open) > 0.1:
-                    logger.info(
-                        f"🚰 [RTU {rtu_id}] 밸브 명령 수신! (현재: {esa_model.valve_open}% -> 변경: {mb_valve}%)"
-                    )
                     esa_model.valve_open = mb_valve
                     await p_valve.write_value(float(mb_valve))
                 elif abs(float(opc_valve) - esa_model.valve_open) > 0.1:
@@ -252,15 +247,14 @@ async def run_server(opc_port: int, modbus_port: int):
                 await p_power.write_value(float(esa_model.power))
                 await p_energy.write_value(float(esa_model.energy))
 
+                # 🎯 [핵심 패치 적용] C#이 기대하는 순서대로 정확하게 데이터를 밀어넣습니다.
                 store.setValues(3, HR_DO, [int(esa_model.do * 100)])
-                store.setValues(3, HR_PH, [int(esa_model.ph * 100)])
-                store.setValues(3, HR_TEMP, [int(esa_model.temp * 100)])
-                store.setValues(3, HR_FLOW, [int(esa_model.air_flow * 10)])
                 store.setValues(3, HR_MLSS, [int(esa_model.mlss)])
+                store.setValues(3, HR_TEMP, [int(esa_model.temp * 100)])
+                store.setValues(3, HR_PH, [int(esa_model.ph * 100)])
+                store.setValues(3, HR_FLOW, [int(esa_model.air_flow * 10)])
 
-                # 🚀 [패치 완료] 3D 대시보드로 밸브 상태를 소리쳐서 알려줌! (5번 주소)
                 store.setValues(3, HR_VALVE_CURR, [int(esa_model.valve_open)])
-
                 store.setValues(3, HR_PUMP_CURR, [int(esa_model.pump_hz * 10)])
                 store.setValues(3, HR_POWER_CURR, [int(esa_model.power * 100)])
                 store.setValues(3, HR_POWER_ACCM, [int(esa_model.energy * 10)])

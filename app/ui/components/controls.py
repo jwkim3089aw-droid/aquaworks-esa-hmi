@@ -13,14 +13,9 @@ def create_control_section(
     on_ai_click: Optional[Callable[[], None]] = None,
     current_rtu: Optional[Dict[str, int]] = None,
 ) -> Tuple[Any, Any, Any, Any, Any, Any, Any, Any]:
-    """
-    Returns: (lbl_cur_do, lbl_cur_valve, lbl_cur_hz, do_auto_btn, lbl_set_do, lbl_set_valve, lbl_set_hz, ai_btn)
-    """
-    # 기본 방어 코드
     if current_rtu is None:
         current_rtu = {"id": 1}
 
-    # --- Helper Functions ---
     def clamp(v: float, lo: float, hi: float) -> float:
         return max(lo, min(hi, float(v)))
 
@@ -30,25 +25,44 @@ def create_control_section(
 
     def pm_text(char: str, on_click: Callable[[], None]) -> Any:
         el = ui.label(char).classes(
-            "pm-txt text-lg px-2 cursor-pointer hover:text-white text-gray-400"
+            "pm-txt text-lg px-2 cursor-pointer hover:text-white text-gray-400 select-none"
         )
-        el.on("click", lambda _e: on_click())
+        el.on("click.stop", lambda _e: on_click())
         return el
 
-    def number_box(value: float, lo: float, hi: float, step: float = 1.0) -> Any:
+    # 🎯 [핵심] on_change 콜백 추가 (버튼 없이 숫자 변경만으로 즉시 적용)
+    def number_box(
+        value: float,
+        lo: float,
+        hi: float,
+        step: float = 1.0,
+        fmt: str = "%.0f",
+        on_change: Callable[[float], None] = None,
+    ) -> Any:
         num = (
-            ui.number(value=value, min=lo, max=hi, step=step, format="%.0f")
+            ui.number(value=value, min=lo, max=hi, step=step, format=fmt)
             .props(
                 'outlined dense input-style="text-align: center; color: white; font-size: 13px;"'
             )
             .classes("w-[75px]")
         )
 
+        if on_change:
+            num.on("update:model-value", lambda e: on_change(float(e.args)) if e.args else None)
+
         def dec():
-            num.set_value(clamp(value_as_float(num, value) - step, lo, hi))
+            new_val = clamp(value_as_float(num, value) - step, lo, hi)
+            new_val = round(new_val, 1) if step < 1.0 else int(round(new_val))
+            num.set_value(new_val)
+            if on_change:
+                on_change(new_val)
 
         def inc():
-            num.set_value(clamp(value_as_float(num, value) + step, lo, hi))
+            new_val = clamp(value_as_float(num, value) + step, lo, hi)
+            new_val = round(new_val, 1) if step < 1.0 else int(round(new_val))
+            num.set_value(new_val)
+            if on_change:
+                on_change(new_val)
 
         with num.add_slot("prepend"):
             pm_text("−", dec)
@@ -71,13 +85,12 @@ def create_control_section(
                     log.exception(f"apply error: {e}")
 
         return (
-            ui.button("APPLY", color="primary")
-            .props("unelevated dense size=md")
-            .classes("px-3 min-h-[24px]")
-            .on("click", _on_click)
+            ui.button("APPLY", color="teal-6")
+            .props("unelevated dense size=sm")
+            .classes("px-2 min-h-[24px] font-bold text-[11px]")
+            .on("click.stop", _on_click)
         )
 
-    # --- UI Construction ---
     cmd_card = ui.card().classes(
         "cmds w-full h-[260px] min-w-0 overflow-hidden bg-[#0F172A] rounded-xl shadow-lg border border-[#1F2937] flex flex-col p-0 gap-0"
     )
@@ -85,18 +98,19 @@ def create_control_section(
     lbl_cur_do = lbl_cur_valve = lbl_cur_hz = None
     lbl_set_do = lbl_set_valve = lbl_set_hz = None
     do_auto_btn = ai_btn = None
+    do_num = None
 
     with cmd_card:
-        # Header 영역
         with ui.row().classes(
             "w-full h-[30px] items-center px-3 bg-[#162032] border-b border-[#1F2937] justify-between"
         ):
             ui.label("Commands").classes("text-xs font-bold text-[#E5E7EB]")
-
             if on_ai_click:
-                with ui.button(icon="psychology", on_click=on_ai_click).props(
-                    "flat round dense size=xs text-color=grey-7"
-                ) as ai_btn:
+                with (
+                    ui.button(icon="psychology")
+                    .props("flat round dense size=xs text-color=grey-7")
+                    .on("click.stop", on_ai_click) as ai_btn
+                ):
                     ui.tooltip("AI Internal State")
             else:
                 ai_btn = ui.element("div").classes("hidden")
@@ -108,7 +122,6 @@ def create_control_section(
             GRID_Template = (
                 "grid grid-cols-[5rem_4rem_4rem_5rem_auto] items-center gap-1 w-full text-center"
             )
-
             with ui.element("div").classes(
                 GRID_Template + " text-[10px] text-gray-500 font-bold uppercase"
             ):
@@ -117,18 +130,33 @@ def create_control_section(
 
             init_state = get_sys_state(current_rtu["id"])
 
-            # 1. Target DO
+            # 🎯 1. Target DO (APPLY 버튼 완전 삭제, 하나의 버튼만 남김)
             with ui.element("div").classes(
                 GRID_Template + " h-[40px] border-b border-[#1F2937]/50"
             ):
                 ui.label("DO (mg/L)").classes("text-xs text-green-400 font-bold text-left pl-1")
                 lbl_cur_do = ui.label("--").classes("text-sm text-green-400 font-mono font-bold")
-                lbl_set_do = ui.label(f"{init_state.target_do}").classes(
+                lbl_set_do = ui.label(f"{init_state.target_do:.1f}").classes(
                     "text-sm text-cyan-400 font-mono font-bold"
                 )
 
+                # 숫자 바뀌면 바로 백엔드 적용 함수
+                def _on_do_change(val: float):
+                    state = get_sys_state(current_rtu["id"])
+                    state.target_do = val
+                    sync_state["target_do"] = val
+                    if lbl_set_do:
+                        lbl_set_do.text = f"{val:.1f}"
+
                 with ui.row().classes("justify-center"):
-                    do_num = number_box(init_state.target_do, 0, 20.0, step=0.1)
+                    do_num = number_box(
+                        init_state.target_do,
+                        0.0,
+                        10.0,
+                        step=0.1,
+                        fmt="%.1f",
+                        on_change=_on_do_change,
+                    )
 
                 async def _toggle_auto_mode() -> None:
                     rtu_id = current_rtu["id"]
@@ -137,26 +165,29 @@ def create_control_section(
 
                     if not is_auto:
                         state.auto_mode = False
-                        ui.notify(f"🛑 [Machine #{rtu_id}] Auto Control STOPPED", type="warning")
+                        ui.notify(
+                            f"🛑 [Machine #{rtu_id}] Auto Control STOPPED",
+                            type="warning",
+                            timeout=2.0,
+                        )
                     else:
-                        val = value_as_float(do_num, 2.0)
-                        state.target_do = float(val)
-                        lbl_set_do.text = f"{val:.1f}"
                         state.auto_mode = True
                         ui.notify(
-                            f"🚀 [Machine #{rtu_id}] Auto Control STARTED (Target: {val})",
+                            f"🚀 [Machine #{rtu_id}] Auto Control STARTED",
                             type="positive",
+                            timeout=2.0,
                         )
 
                     btn_any = cast(Any, do_auto_btn)
                     if btn_any and hasattr(btn_any, "_update_ui_callback"):
                         btn_any._update_ui_callback()
 
-                with ui.row().classes("justify-center gap-1"):
+                with ui.row().classes("justify-center items-center gap-1 flex-nowrap"):
                     do_auto_btn = (
-                        ui.button("START AUTO", on_click=_toggle_auto_mode)
+                        ui.button("START AUTO")
                         .props("unelevated dense size=sm color=primary icon=play_arrow")
-                        .classes("px-2 min-h-[24px]")
+                        .classes("px-4 min-h-[28px] text-[11px] font-bold")
+                        .on("click.stop", _toggle_auto_mode)
                     )
 
             # 2. Valve Position
@@ -168,7 +199,7 @@ def create_control_section(
                 lbl_set_valve = ui.label("50").classes("text-sm text-cyan-400 font-mono font-bold")
 
                 with ui.row().classes("justify-center"):
-                    valve_num = number_box(50, 0, 100, step=5)
+                    valve_num = number_box(50, 0, 100, step=5.0)
                     lock_targets.append(valve_num)
 
                 with ui.row().classes("justify-center"):
@@ -177,13 +208,8 @@ def create_control_section(
                         rtu_id = current_rtu["id"]
                         try:
                             await command_q.put((rtu_id, "valve_pos", float(val)))
-                            log.info(f"✅ Command Sent: [RTU {rtu_id}] Valve -> {val}")
-
-                            # 🚀 [핵심 패치] 시각적 피드백 강제 적용
-                            # 밸브는 현재 피드백 센서가 없으므로, APPLY를 누르면 화면의 Current 값도 즉시 바꿔서 작동했음을 직관적으로 알림
                             if lbl_cur_valve:
                                 lbl_cur_valve.text = f"{val:.0f}"
-
                         except Exception as e:
                             log.warning(f"Valve command failed: {val} ({e})")
 
@@ -201,7 +227,7 @@ def create_control_section(
                 lbl_set_hz = ui.label("40").classes("text-sm text-cyan-400 font-mono font-bold")
 
                 with ui.row().classes("justify-center"):
-                    hz_num = number_box(40, 20, 60)
+                    hz_num = number_box(40, 20, 60, step=1.0)
                     lock_targets.append(hz_num)
 
                 with ui.row().classes("justify-center items-center gap-2"):
@@ -210,7 +236,6 @@ def create_control_section(
                         rtu_id = current_rtu["id"]
                         try:
                             await command_q.put((rtu_id, "set_hz", float(val)))
-                            log.info(f"✅ Command Sent: [RTU {rtu_id}] Pump Hz -> {val}")
                         except Exception as e:
                             log.warning(f"Pump Hz command failed: {val} ({e})")
 
@@ -218,6 +243,29 @@ def create_control_section(
                         lbl_set_hz, lambda: value_as_float(hz_num, 40.0), on_apply=_apply_pump_hz
                     )
                     lock_targets.append(h_btn)
+
+    sync_state = {"last_rtu": current_rtu["id"], "target_do": init_state.target_do}
+
+    def sync_controls():
+        rtu_id = current_rtu["id"]
+        if rtu_id == 0:
+            return
+        state = get_sys_state(rtu_id)
+
+        if lbl_set_do:
+            lbl_set_do.text = f"{state.target_do:.1f}"
+
+        if sync_state["last_rtu"] != rtu_id:
+            sync_state["last_rtu"] = rtu_id
+            sync_state["target_do"] = state.target_do
+            if do_num:
+                do_num.set_value(state.target_do)
+        elif sync_state["target_do"] != state.target_do:
+            sync_state["target_do"] = state.target_do
+            if do_num:
+                do_num.set_value(state.target_do)
+
+    ui.timer(1.0, sync_controls)
 
     return (
         lbl_cur_do,

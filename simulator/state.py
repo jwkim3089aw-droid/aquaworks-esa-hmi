@@ -13,7 +13,6 @@ class ControlInput(BaseModel):
 
 
 def _controls() -> ControlInput:
-    # Pylance-friendly: avoid ControlInput() call signature confusion
     return ControlInput.model_validate({})
 
 
@@ -25,7 +24,6 @@ class ModelState(BaseModel):
     )
 
     wall_timestamp: float = Field(default_factory=time.time)
-
     controls: ControlInput = Field(default_factory=_controls)
 
     # Hydraulics
@@ -40,13 +38,8 @@ class ModelState(BaseModel):
 
     # Water quality
     do_mgL: float = 5.0
-
-    # [수정] MLSS 분리: True(공정 실제값) vs Measured(HMI 표시값)
-    # mlss_true_mgL: 공정 내부의 실제 농도 (매우 느리게 변함)
     mlss_true_mgL: float = 3000.0
-    # mlss: HMI에 표시되는 값 (노이즈와 필터가 포함됨)
     mlss: float = 3000.0
-
     ph: float = 7.0
 
     # Thermal & energy

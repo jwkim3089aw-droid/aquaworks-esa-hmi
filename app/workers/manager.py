@@ -2,6 +2,7 @@
 
 """
 Omega Grade v2 (Disk-Safe, Operationally Honest, Windows-Compatible) + N-Scale Multi-Device Ready (JSON File-based)
++ [NEW] Hybrid Valve-Pump Control Engine (AI Hz + Smart Valve)
 """
 
 import asyncio
@@ -26,7 +27,6 @@ import torch.optim as optim
 from pydantic import BaseModel, Field
 from torch.utils.tensorboard import SummaryWriter
 
-# 🚀 [NEW] DB 임포트를 걷어내고 JSON 파일 관리자를 임포트합니다.
 from app.core.device_config import load_device_configs, save_device_configs, get_device_config
 from app.models.settings import BackendType
 
@@ -671,13 +671,11 @@ class ImmortalAgent:
 
 
 # -----------------------------------------------------------------------------
-# 4. MANAGER (The Orchestrator) - 🚀 다중 장비 스케일 아웃 엔진
+# 4. MANAGER (The Orchestrator) - 🚀 다중 장비 스케일 아웃 엔진 + Hybrid Control
 # -----------------------------------------------------------------------------
 class WorkerManager:
     def __init__(self) -> None:
         self._core_tasks: list[asyncio.Task] = []
-
-        # 각 RTU 장비의 폴링(Polling) 스레드를 개별적으로 관리
         self._poller_tasks: Dict[int, asyncio.Task] = {}
         self._bg_tasks: Set[asyncio.Task] = set()
 
@@ -696,6 +694,28 @@ class WorkerManager:
             self.ctrls[rtu_id] = ImmortalAgent(SITE, rtu_id)
         return self.ctrls[rtu_id]
 
+    # 🚀 [NEW] 하이브리드 밸브 개도율 계산 로직 (Proportional Control)
+    def _calculate_optimal_valve(self, target_do: float, curr_do: float) -> float:
+        """
+        DO 오차(Error)를 기반으로 최적의 밸브 개도율(%)을 계산합니다.
+        - 에러 ≤ 0: 밸브 차단 (0%)
+        - 에러 ≥ 1.5: 밸브 풀개방 (100%)
+        - 에러 0 ~ 1.5: 비례 제어 (30% ~ 100%)
+        """
+        do_error = target_do - curr_do
+
+        if do_error <= 0.0:
+            return 0.0  # 산소 충분, 밸브 차단 (물만 순환)
+
+        if do_error >= 1.5:
+            return 100.0  # 산소 심각하게 부족, 밸브 100%
+
+        # 목표치 근접 구간: 30%를 기본 하한선으로 잡고 남은 70%를 에러 비율에 맞춰 개방
+        p_ratio = do_error / 1.5
+        valve_pos = 30.0 + (70.0 * p_ratio)
+
+        return max(0.0, min(100.0, valve_pos))
+
     async def initialize(self) -> None:
         self._running = True
 
@@ -712,7 +732,6 @@ class WorkerManager:
             loop.create_task(self._command_dispatcher_loop(), name="CommandDispatcher")
         )
 
-        # 🚀 [패치 완료] 무거운 DB 엔진 대신 JSON 설정 파일(device_config.json)을 읽어옵니다.
         configs = load_device_configs()
         for config_dict in configs:
             await self.start_poller(config_dict)
@@ -720,7 +739,6 @@ class WorkerManager:
 
         logger.info(f"✅ Immortal AI Manager Started (Loaded {len(configs)} devices from JSON).")
 
-    # 🚀 [UI 연동 전용 API] 특정 기기를 새로 추가하고 통신 시작
     async def add_worker(self, rtu_id: int) -> None:
         config_dict = get_device_config(rtu_id)
         if config_dict:
@@ -734,18 +752,16 @@ class WorkerManager:
                 f"❌ [Device {rtu_id}] device_config.json 에서 해당 기기를 찾을 수 없어 워커를 추가할 수 없습니다."
             )
 
-    # 🚀 [UI 연동 전용 API] 특정 기기의 설정을 변경하고 재시작
     async def update_worker(self, rtu_id: int) -> None:
         logger.info(f"🔄 [Device {rtu_id}] 통신 워커 재시작을 시도합니다.")
-        await self.add_worker(rtu_id)  # start_poller가 내부적으로 기존 워커를 끄고 켜줍니다.
+        await self.add_worker(rtu_id)
 
     async def start_poller(self, config: dict) -> None:
-        # 🚀 인자가 DB 객체(ConnectionConfig)에서 Dictionary(JSON) 형태로 변경되었습니다!
         rtu_id = config["id"]
         protocol_str = config.get("protocol", BackendType.MODBUS.value)
         host = config.get("host", "127.0.0.1")
 
-        await self.stop_poller(rtu_id)  # 이미 돌고 있다면 안전하게 끄고 시작
+        await self.stop_poller(rtu_id)
 
         loop = asyncio.get_running_loop()
         os.environ[f"ESA_BACKEND_{rtu_id}"] = protocol_str
@@ -774,7 +790,6 @@ class WorkerManager:
                 pass
             logger.info(f"🛑 Stopped Poller Worker for Device [{rtu_id}]")
 
-    # 🚀 통신 설정 변경 (JSON 지원)
     async def apply_comm_settings(self, rtu_id: int, port: str, baudrate: int) -> bool:
         logger.info(f"🔄 UI 요청: [Device {rtu_id}] 통신 설정 변경 ({port} @ {baudrate}bps)")
         configs = load_device_configs()
@@ -804,7 +819,6 @@ class WorkerManager:
         await self.add_worker(rtu_id)
         return True
 
-    # 🚀 통신 강제 해제 (JSON 지원)
     async def disconnect_comm(self, rtu_id: int) -> None:
         logger.info(f"🛑 UI 요청: [Device {rtu_id}] 통신 강제 해제")
         await self.stop_poller(rtu_id)
@@ -812,7 +826,7 @@ class WorkerManager:
         configs = load_device_configs()
         for c in configs:
             if c["id"] == rtu_id:
-                c["host"] = ""  # 호스트를 날려버려서 접속을 끊음
+                c["host"] = ""
                 break
         save_device_configs(configs)
 
@@ -895,7 +909,6 @@ class WorkerManager:
 
         task.add_done_callback(_done)
 
-    # 🚀 [핵심 패치] 하드코딩 탈피! JSON에 설정된 주소를 동적으로 읽어옵니다.
     async def _command_dispatcher_loop(self) -> None:
         logger.info("📡 Modbus Command Dispatcher Started (Fully Dynamic Mode).")
         while self._running:
@@ -905,20 +918,17 @@ class WorkerManager:
                 config_dict = get_device_config(rtu_id)
                 tags = config_dict.get("tags", {})
 
-                # 1. 펌프(set_hz)는 C# 장비 통신 규격상 무조건 * 10.0 이 필요하므로 예외 처리
                 if cmd == "set_hz":
                     target_val = int(val * 10.0)
                     addr = tags.get("set_hz", {}).get("mb_addr", 29)
                     await write_hr_single(rtu_id, addr, target_val)
 
-                # 2. JSON에 등록된 일반 태그 (예: valve_pos 및 미래에 추가될 모든 장비)
                 elif cmd in tags:
                     target_val = int(val)
                     addr = tags[cmd].get("mb_addr")
                     if addr is not None:
                         await write_hr_single(rtu_id, addr, target_val)
 
-                # 3. JSON에 등록되지 않은 순수 주소 직접 타격 (캐시 이슈나 임시 테스트용 완벽 방어)
                 elif str(cmd).startswith("raw_"):
                     target_val = int(val)
                     addr = int(str(cmd).split("_")[1])
@@ -939,7 +949,6 @@ class WorkerManager:
             start_time = time.monotonic()
             try:
                 for rtu_id, state in sys_states.items():
-                    # HMI 내부 '자동 제어 모드'가 켜져 있을 때 작동
                     if getattr(state, "auto_mode", False):
                         agent = self._get_agent(rtu_id)
 
@@ -949,7 +958,7 @@ class WorkerManager:
                         mlss = getattr(state, "last_mlss", 0.0)
                         ph = getattr(state, "last_ph", 0.0)
 
-                        # AI가 최적의 펌프 주파수(Hz)를 계산
+                        # 1. AI: 최적의 펌프 주파수(Hz) 계산
                         target_hz = await loop.run_in_executor(
                             self.compute_executor,
                             agent.compute,
@@ -960,13 +969,12 @@ class WorkerManager:
                             ph,
                         )
 
-                        # 🚀 [핵심 패치 1] 현장 장비(시뮬레이터)의 밸브 스위치가 'Auto'일 때만 HMI가 덮어씁니다!
-                        if getattr(state, "valve_auto", False):
-                            await command_q.put((rtu_id, "valve_pos", float(SITE.base_valve_pos)))
+                        # 2. 🚀 [NEW] 스마트 제어기: 최적의 밸브 개도율(%) 자체 계산
+                        target_valve = self._calculate_optimal_valve(target_do, curr_do)
 
-                        # 🚀 [핵심 패치 2] 현장 장비(시뮬레이터)의 펌프 스위치가 'Auto'일 때만 HMI가 덮어씁니다!
-                        if getattr(state, "pump_auto", False):
-                            await command_q.put((rtu_id, "set_hz", float(target_hz)))
+                        # 🚀 [패치 완료] 현장 스위치 방어막 완전 삭제! 무조건 명령을 큐에 꽂아 넣습니다.
+                        await command_q.put((rtu_id, "valve_pos", float(target_valve)))
+                        await command_q.put((rtu_id, "set_hz", float(target_hz)))
 
                 save_tick += 1
                 if save_tick >= 150:

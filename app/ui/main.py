@@ -38,6 +38,9 @@ from app.api.v1.rtu_control import router as rtu_control_router
 from app.api.v1.telemetry import simulator_task
 from app.services.telemetry_store import get_store
 
+# AI 상태 표시용
+from app.workers.ai_state import get_ai_state
+
 # ---------------------------------------------------------------------------
 # Logging & Setup
 # ---------------------------------------------------------------------------
@@ -63,11 +66,9 @@ def page() -> None:
         ".history-card .q-table__container, .cmds .q-table__container{overflow-x:auto;} .history-card{min-width:0!important;}"
     )
 
-    # 🚀 하드코딩 탈피: JSON에서 기기 ID 로드
     devices = load_device_configs()
-    current_rtu = {"id": devices[0]["id"] if devices else 0}
+    current_rtu = {"id": 0}
 
-    # Data & UI State Setup
     metrics: List[Dict[str, Any]] = cast(List[Dict[str, Any]], METRICS)
     active_keys: Set[str] = set()
     trend_marks: List[Dict[str, Any]] = []
@@ -90,16 +91,34 @@ def page() -> None:
     }
     metric_keys = list(series_colors_by_key.keys())
 
-    # --- Header & AI Panel ---
+    unit_map = {
+        "do": "mg/L",
+        "mlss": "mg/L",
+        "temp": "°C",
+        "ph": "",
+        "air_flow": "m³/h",
+        "power": "kW",
+        "energy": "kWh",
+    }
+
     def handle_rtu_change(new_id: int):
         current_rtu["id"] = new_id
         update_auto_ui()
         _tick_cards()
-        ui.notify(f"Dashboard Switched to Machine #{new_id}", type="info", position="top")
+        if new_id == 0:
+            ui.notify(
+                "통합 관제 센터(Overview)로 이동합니다.", type="info", position="top", timeout=2.0
+            )
+        else:
+            ui.notify(
+                f"기계 #{new_id} 상세 뷰로 전환되었습니다.",
+                type="positive",
+                position="top",
+                timeout=2.0,
+            )
 
     create_header(current_rtu=current_rtu, on_rtu_change=handle_rtu_change)
 
-    # 🐛 [픽스] 컨텍스트 매니저를 분리하여 더 안전하게 구성
     with ui.dialog() as ai_dialog:
         with ui.card().style(
             "min-width: 800px; background-color: #121212; border: 1px solid #333;"
@@ -109,17 +128,187 @@ def page() -> None:
                 ui.button(icon="close", on_click=ai_dialog.close).props("flat round color=white")
             create_ai_panel(current_rtu=current_rtu)
 
-    # --- Main Layout ---
-    with ui.element("div").classes(
-        "w-full max-w-[1400px] mx-auto px-6 grid gap-3 grid-cols-1 xl:grid-cols-[215px_minmax(0,1fr)] h-full"
-    ):
+    # =====================================================================
+    # 🌟 뷰 1: 통합 관제 대시보드 (Overview) - 꽉 막힌 공간 확장 패치!
+    # =====================================================================
+    overview_refs: Dict[int, Dict[str, Any]] = {}
 
-        # 1. Left: KPI Cards
+    overview_container = ui.element("div").classes(
+        # 🚀 [UI 핵심 수정] 우측에 버려지던 빈 공간을 없애고(4열 삭제), 모니터 넓이(1920px)를 꽉 채우게 3열(grid-cols-3)로 확장!
+        "w-full max-w-[1920px] mx-auto px-6 xl:px-10 grid gap-6 xl:gap-8 grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 h-full pb-10 mt-6"
+    )
+    overview_container.bind_visibility_from(current_rtu, "id", backward=lambda id: id == 0)
+
+    with overview_container:
+        for d in devices:
+            r_id = d["id"]
+            r_name = d.get("name", f"Machine {r_id}")
+            overview_refs[r_id] = {}
+
+            with (
+                ui.card()
+                .classes(
+                    "bg-[#1e293b] rounded-2xl border-t-4 border-t-cyan-500 shadow-2xl cursor-pointer hover:bg-[#233044] transition-all hover:-translate-y-1 relative overflow-hidden p-0 flex flex-col"
+                )
+                .on("click", lambda e, id=r_id: handle_rtu_change(id))
+            ):
+                with ui.row().classes(
+                    "w-full justify-between items-center px-6 py-5 bg-slate-800/40 border-b border-slate-700/50"
+                ):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon("circle", color="green-400", size="10px").classes(
+                            "animate-pulse shadow-[0_0_8px_rgba(74,222,128,0.8)]"
+                        )
+                        ui.label(r_name).classes("text-xl font-extrabold text-white tracking-wide")
+
+                    def toggle_ai(e, rtu_id=r_id):
+                        state = get_sys_state(rtu_id)
+                        state.auto_mode = not state.auto_mode
+                        ui.notify(
+                            (
+                                f"🟢 기계 #{rtu_id} AI 제어 시작"
+                                if state.auto_mode
+                                else f"🔴 기계 #{rtu_id} AI 제어 중지"
+                            ),
+                            position="top",
+                            timeout=2.0,
+                        )
+                        _tick_cards()
+
+                    ai_btn = (
+                        ui.button("MANUAL")
+                        .classes(
+                            "text-[11px] font-bold px-3 py-1.5 rounded transition-all cursor-pointer shadow-md"
+                        )
+                        .props("unelevated dense color=grey-8")
+                        .on("click.stop", toggle_ai)
+                    )
+                    overview_refs[r_id]["ai_btn"] = ai_btn
+
+                # 🎯 [UI 패치] 카드가 좌우로 넓어진 만큼, 박스 간격(gap-4)과 내부 여백(py-4 px-2)을 늘려 시원시원하게 만듦
+                with ui.grid(columns=3).classes("w-full gap-3 xl:gap-4 p-5 xl:p-6 flex-grow"):
+                    for m in metrics:
+                        m_key = str(m.get("key", title_of(m)))
+                        if m_key in ["pump_hz", "valve_pos"]:
+                            continue
+
+                        m_title = str(m.get("title", m_key)).upper()
+                        m_unit = unit_map.get(m_key.lower(), "")
+
+                        with ui.column().classes(
+                            "bg-slate-900/40 rounded-xl py-3 xl:py-4 px-1 xl:px-2 w-full shadow-inner border border-slate-700/30 flex flex-col items-center justify-center"
+                        ):
+                            ui.label(m_title).classes(
+                                "text-[10px] xl:text-[11px] text-slate-400 font-semibold tracking-wider leading-none mb-2 w-full text-center"
+                            )
+
+                            with ui.row().classes(
+                                "items-baseline gap-1 flex-nowrap justify-center w-full"
+                            ):
+                                txt_color = (
+                                    "text-yellow-400"
+                                    if "ph" in m_key.lower()
+                                    else (
+                                        "text-cyan-400"
+                                        if "do" in m_key.lower()
+                                        else "text-gray-100"
+                                    )
+                                )
+                                # 🎯 늘어난 여백에 맞춰 숫자 크기도 조금 더 시원하게 (xl:text-[1.6rem])
+                                lbl_val = ui.label("--").classes(
+                                    f"text-2xl xl:text-[1.6rem] font-mono {txt_color} font-bold leading-none"
+                                )
+                                overview_refs[r_id][m_key] = lbl_val
+
+                                if m_unit:
+                                    ui.label(m_unit).classes(
+                                        "text-[9px] xl:text-[10px] text-slate-500 font-bold whitespace-nowrap"
+                                    )
+
+                with ui.row().classes(
+                    "w-full px-5 xl:px-6 py-3 xl:py-4 items-center justify-between border-t border-slate-700/50 bg-slate-800/30"
+                ):
+                    ui.label("TARGET DO").classes(
+                        "text-[10px] xl:text-[11px] text-slate-400 font-bold tracking-widest whitespace-nowrap"
+                    )
+
+                    def update_target_do(rtu_id, delta):
+                        state = get_sys_state(rtu_id)
+                        current_target = getattr(state, "target_do", 2.0)
+                        new_target = round(max(0.0, min(10.0, current_target + delta)), 1)
+                        state.target_do = new_target
+                        state.auto_mode = True
+                        overview_refs[rtu_id]["target_do"].set_text(f"{new_target:.1f}")
+                        ui.notify(
+                            f"🚀 기계 #{rtu_id} 목표 DO 변경 및 AI 가동: {new_target:.1f}",
+                            type="positive",
+                            position="top",
+                            timeout=2.0,
+                        )
+                        _tick_cards()
+
+                    with ui.row().classes("items-center gap-2 flex-nowrap"):
+                        ui.button(icon="remove").props("dense flat round size=sm").classes(
+                            "text-slate-400 hover:text-white"
+                        ).on("click.stop", lambda e, r=r_id: update_target_do(r, -0.1))
+
+                        init_target = getattr(get_sys_state(r_id), "target_do", 2.0)
+
+                        with ui.row().classes("items-baseline gap-1 flex-nowrap justify-center"):
+                            lbl_target = ui.label(f"{init_target:.1f}").classes(
+                                "text-xl xl:text-2xl font-mono text-cyan-300 font-bold w-10 text-right"
+                            )
+                            overview_refs[r_id]["target_do"] = lbl_target
+                            ui.label("mg/L").classes(
+                                "text-[9px] xl:text-[10px] text-slate-500 font-bold whitespace-nowrap"
+                            )
+
+                        ui.button(icon="add").props("dense flat round size=sm").classes(
+                            "text-slate-400 hover:text-white"
+                        ).on("click.stop", lambda e, r=r_id: update_target_do(r, 0.1))
+
+                with ui.row().classes(
+                    "w-full bg-[#0b1120] p-5 xl:p-6 flex-nowrap items-center justify-between"
+                ):
+                    with ui.column().classes("items-start pl-2"):
+                        ui.label("PUMP").classes(
+                            "text-[10px] xl:text-[11px] text-slate-500 font-bold tracking-widest"
+                        )
+                        with ui.row().classes("items-baseline gap-1 flex-nowrap"):
+                            lbl_pump = ui.label("--").classes(
+                                "text-3xl font-mono text-white font-bold"
+                            )
+                            ui.label("Hz").classes(
+                                "text-[11px] text-slate-600 font-bold whitespace-nowrap"
+                            )
+                        overview_refs[r_id]["pump_hz"] = lbl_pump
+
+                    with ui.column().classes("items-end pr-2"):
+                        ui.label("VALVE").classes(
+                            "text-[10px] xl:text-[11px] text-slate-500 font-bold tracking-widest"
+                        )
+                        with ui.row().classes("items-baseline gap-1 flex-nowrap"):
+                            lbl_valve = ui.label("--").classes(
+                                "text-3xl font-mono text-green-400 font-bold"
+                            )
+                            ui.label("%").classes(
+                                "text-[11px] text-slate-600 font-bold whitespace-nowrap"
+                            )
+                        overview_refs[r_id]["valve_pos"] = lbl_valve
+
+    # =====================================================================
+    # 🌟 뷰 2: 개별 상세 뷰 (Detail)
+    # =====================================================================
+    detail_container = ui.element("div").classes(
+        "w-full max-w-[1600px] mx-auto px-6 grid gap-3 grid-cols-1 xl:grid-cols-[215px_minmax(0,1fr)] h-full mt-4"
+    )
+    detail_container.bind_visibility_from(current_rtu, "id", backward=lambda id: id != 0)
+
+    with detail_container:
         _, card_map = create_kpi_section(
-            metrics, active_keys, on_selection_change=lambda: _tick_trend()
+            metrics, active_keys, on_selection_change=lambda: asyncio.create_task(_tick_trend())
         )
 
-        # 2. Right: Trend & Commands
         with ui.element("div").classes("min-w-0 h-full flex flex-col gap-3"):
             with ui.row().classes("w-full items-start gap-3"):
                 with ui.element("div").classes("flex-1 min-w-0 w-full"):
@@ -156,17 +345,10 @@ def page() -> None:
     # --- Logic Integration ---
     def update_auto_ui() -> None:
         if current_rtu["id"] == 0:
-            for el in lock_targets:
-                el.disable()
-            if do_auto_btn:
-                do_auto_btn.disable()
-            if ai_btn:
-                ai_btn.disable()
             return
 
         state = get_sys_state(current_rtu["id"])
 
-        # 🐛 [픽스] 체이닝 제거 및 명시적 제어
         for el in lock_targets:
             if state.auto_mode:
                 el.disable()
@@ -175,12 +357,13 @@ def page() -> None:
 
         if do_auto_btn:
             do_auto_btn.enable()
+            do_auto_btn.props(remove="icon")
             if state.auto_mode:
-                do_auto_btn.props("color=red icon=stop")
-                do_auto_btn.text = "STOP"
+                do_auto_btn.props("color=red")
+                do_auto_btn.text = "STOP AUTO"
             else:
-                do_auto_btn.props("color=primary icon=play_arrow")
-                do_auto_btn.text = "APPLY"
+                do_auto_btn.props("color=primary")
+                do_auto_btn.text = "START AUTO"
 
         if ai_btn:
             if state.auto_mode:
@@ -199,24 +382,19 @@ def page() -> None:
     def _handle_chart_click_logic(e: Any, xs_eff: List[str], m_eff: int):
         if current_rtu["id"] == 0:
             return
-
         idx = getattr(e, "dataIndex", getattr(e, "data_index", None))
         if idx is None and hasattr(e, "args") and isinstance(e.args, dict):
             idx = e.args.get("dataIndex")
-
         if idx is None or idx < 0 or idx >= m_eff:
             return
-
         ts_label = xs_eff[idx]
         if trend_marks and trend_marks[-1]["ts_label"] == ts_label:
             return
-
         full_xs, full_data = get_last(current_rtu["id"], 3600)
         try:
             real_idx = list(full_xs).index(ts_label)
         except ValueError:
             return
-
         mark_values = {}
         for key in metric_keys:
             series_raw = list(cast(Sequence[Any], full_data.get(key, ())))
@@ -239,7 +417,6 @@ def page() -> None:
             await _tick_trend_func()
 
     def _safe_format(val_list: Sequence[Any], fmt: str) -> str:
-        """안전한 데이터 포매팅 헬퍼 함수"""
         if (
             val_list
             and isinstance(val_list[-1], (int, float))
@@ -250,21 +427,43 @@ def page() -> None:
 
     def _tick_cards() -> None:
         if current_rtu["id"] == 0:
-            for _, (_, v_label, _) in card_map.items():
-                v_label.text = "--"
-            for lbl in [lbl_cur_do, lbl_cur_valve, lbl_cur_hz]:
-                if lbl:
-                    lbl.text = "--"
+            for d in devices:
+                r_id = d["id"]
+                refs = overview_refs.get(r_id)
+                if not refs:
+                    continue
+
+                _, data = get_last(r_id, 1)
+                sys_state = get_sys_state(r_id)
+
+                for m in metrics:
+                    m_key = str(m.get("key", title_of(m)))
+                    if m_key in refs:
+                        fmt = "{:.1f}" if m_key in ("mlss", "air_flow", "do") else "{:.2f}"
+                        refs[m_key].text = _safe_format(data.get(m_key, []), fmt)
+
+                if "pump_hz" in refs:
+                    refs["pump_hz"].text = _safe_format(data.get("pump_hz", []), "{:.1f}")
+                if "valve_pos" in refs:
+                    refs["valve_pos"].text = _safe_format(data.get("valve_pos", []), "{:.0f}")
+
+                if sys_state.auto_mode:
+                    refs["ai_btn"].text = "AI AUTO"
+                    refs["ai_btn"].props("color=green-7 text-color=white")
+                else:
+                    refs["ai_btn"].text = "MANUAL"
+                    refs["ai_btn"].props("color=grey-8 text-color=grey-4")
+
+                if "target_do" in refs:
+                    current_target = getattr(sys_state, "target_do", 2.0)
+                    refs["target_do"].set_text(f"{current_target:.1f}")
             return
 
         _, data = get_last(current_rtu["id"], 180)
-
-        # 1. KPI 카드 업데이트
         for k, (_, v_label, _) in card_map.items():
             fmt = "{:.1f}" if k in ("mlss", "air_flow", "pump_hz", "do") else "{:.2f}"
             v_label.text = _safe_format(data.get(k, []), fmt)
 
-        # 2. Control 패널 현재값 업데이트
         if lbl_cur_do:
             lbl_cur_do.text = _safe_format(data.get("do", []), "{:.2f}")
         if lbl_cur_valve:
@@ -272,11 +471,10 @@ def page() -> None:
         if lbl_cur_hz:
             lbl_cur_hz.text = _safe_format(data.get("pump_hz", []), "{:.1f}")
 
-    # 타이머 등록
-    ui.timer(1.0, _tick_trend)
-    ui.timer(2.0, _tick_cards)
+    ui.timer(1.0, lambda: asyncio.create_task(_tick_trend()))
+    ui.timer(1.0, _tick_cards)
 
-    clock_label = ui.label().classes("absolute top-2 right-4 text-[#9CA3AF] text-xs")
+    clock_label = ui.label().classes("absolute top-2 right-4 text-[#9CA3AF] text-xs font-mono")
     ui.timer(1.0, lambda: clock_label.set_text(datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
 
 
@@ -361,7 +559,7 @@ if __name__ in {"__main__", "__mp_main__"}:
     dev = os.getenv("ESA_DEV") == "1"
 
     run_kwargs = {
-        "title": "ESA_HMI",
+        "title": "ESA Multi-Control Center",
         "host": host,
         "port": port,
         "reload": dev,

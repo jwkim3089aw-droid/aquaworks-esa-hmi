@@ -89,15 +89,23 @@ class PumpModel:
         else:
             head = 0.0
 
-        # power
+        # 🚀 [빅데이터 기반 실전 모터 전력 모델 패치]
+        # 모터가 회전만 하고 있을 때(유량이 0이어도) 소모하는 기계적 마찰 및 인버터 자화 전류 대기 전력.
+        # 통상적으로 정격 출력의 15% 정도가 마찰 손실로 잡히며, 회전 속도에 비례합니다.
+        idle_kw = p.rated_power_kw * 0.15 * speed_ratio
+
+        # 물을 실제로 밀어 올리는 데 사용된 순수 유효 전력(Hydraulic Work) 계산
         if next_q_m3s > 1e-12 and head > 1e-9:
             hydraulic_w = CONST_RHO_WATER * CONST_G * next_q_m3s * head
             eff_factor = math.sqrt(clamp(next_q_m3s / max(c.rated_q_m3s, 1e-9), 0.1, 1.0))
             eff = c.ref_efficiency * eff_factor
-            target_kw = (hydraulic_w / max(eff, 1e-9)) / 1000.0
+            hydraulic_kw = (hydraulic_w / max(eff, 1e-9)) / 1000.0
         else:
             eff = 0.0
-            target_kw = 0.0
+            hydraulic_kw = 0.0
+
+        # 최종 전력 = 공회전 대기 전력(Idle) + 실제 유체 일량(Hydraulic)
+        target_kw = hydraulic_kw + idle_kw
 
         state.flow_m3h = next_q_m3s * 3600.0
         state.head_m = head

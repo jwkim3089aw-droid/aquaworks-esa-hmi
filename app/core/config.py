@@ -35,7 +35,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    ENABLE_SIMULATION: bool = True
+    ENABLE_SIMULATION: bool = False
     SIM_INTERVAL_SEC: float = 1.0
 
 
