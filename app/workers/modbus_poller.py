@@ -1,4 +1,3 @@
-# app/workers/modbus_poller.py
 from __future__ import annotations
 
 import asyncio
@@ -9,10 +8,7 @@ import time
 from typing import Any, List, Optional, Awaitable, TypeVar, overload, TypeGuard
 from pymodbus.client import AsyncModbusTcpClient
 
-# 🚀 [패치] DB 연동 모듈(SQLAlchemy) 전면 삭제!
-# 🚀 [패치] JSON 설정 파일에서 기기 정보를 직접 가져옵니다.
 from app.core.device_config import get_device_config
-
 from app.stream.state import ingest_q, db_q, Sample, get_sys_state
 from app.adapters.plc.modbus.map import (
     COIL_EMERGENCY,
@@ -22,7 +18,7 @@ from app.adapters.plc.modbus.map import (
     COIL_VALVE_AUTO,
 )
 
-logger = logging.getLogger("esa_hmi.modbus_tcp")
+logger = logging.getLogger("telemetry.modbus_tcp")
 logger.setLevel(logging.INFO)
 
 T = TypeVar("T")
@@ -42,7 +38,6 @@ async def _maybe_await(x: Any) -> Any:
     return x
 
 
-# 🚀 [핵심 패치 1] DB가 아닌 JSON 설정(device_config.json)을 읽어옵니다.
 async def get_modbus_config(rtu_id: int):
     try:
         config = get_device_config(rtu_id)
@@ -57,7 +52,6 @@ async def get_modbus_config(rtu_id: int):
     return None
 
 
-# 🚀 [핵심 패치 2] C# 시뮬레이터 메모리 맵과 센서 데이터 인덱스 완벽 동기화
 def _decode_sample(rtu_id: int, regs: List[int]) -> Sample:
     def safe_get(idx, div=1.0):
         return (regs[idx] / div) if regs and len(regs) > idx else 0.0
@@ -65,35 +59,53 @@ def _decode_sample(rtu_id: int, regs: List[int]) -> Sample:
     return Sample(
         rtu_id=rtu_id,
         ts=time.time(),
-        do=safe_get(0, 100.0),  # 0번: DO
-        mlss=safe_get(1, 1.0),  # 1번: MLSS
-        temp=safe_get(2, 100.0),  # 2번: Temp
-        ph=safe_get(3, 100.0),  # 3번: pH
-        air_flow=safe_get(4, 10.0),  # 4번: Air Flow
-        valve_pos=safe_get(5, 1.0),  # 5번: Valve 위치
-        pump_hz=safe_get(6, 10.0),  # 6번: 펌프 동작 주파수
-        power=safe_get(7, 100.0),  # 7번: 현재 소비 전력
-        # 8번은 빈 공간
-        energy_kwh=safe_get(9, 10.0),  # 9번: 누적 전력량
+        do=safe_get(0, 100.0),
+        mlss=safe_get(1, 1.0),
+        temp=safe_get(2, 100.0),
+        ph=safe_get(3, 100.0),
+        air_flow=safe_get(4, 10.0),
+        valve_pos=safe_get(5, 1.0),
+        pump_hz=safe_get(6, 10.0),
+        power=safe_get(7, 100.0),
+        energy_kwh=safe_get(9, 10.0),
     )
+
+
+_write_clients = {}
 
 
 async def write_hr_single(rtu_id: int, addr: int, val: float | int) -> bool:
     conf = await get_modbus_config(rtu_id)
     if not conf:
         return False
-    client = AsyncModbusTcpClient(host=conf["host"], port=conf["port"])
-    try:
+
+    host_port = f"{conf['host']}:{conf['port']}"
+
+    # 캐시에 없으면 새로 생성 후 연결
+    if host_port not in _write_clients:
+        _write_clients[host_port] = AsyncModbusTcpClient(host=conf["host"], port=conf["port"])
+        await _maybe_await(_write_clients[host_port].connect())
+
+    client = _write_clients[host_port]
+
+    # 끊어졌으면 슬쩍 다시 연결
+    if not getattr(client, "connected", False):
         await _maybe_await(client.connect())
-        if getattr(client, "connected", False):
-            await _maybe_await(
-                client.write_register(address=addr, value=int(val), slave=conf["unit_id"])
-            )
-            logger.info(f"✅ [RTU {rtu_id} Write] Addr: {addr}, Val: {int(val)}")
-            return True
-    finally:
+
+    try:
+        # 연결 닫기(close) 없이 바로 쏘기만 함! (속도 100배 향상)
+        await _maybe_await(
+            client.write_register(address=addr, value=int(val), slave=conf["unit_id"])
+        )
+        logger.info(f"✅ [RTU {rtu_id} Write] Addr: {addr}, Val: {int(val)}")
+        return True
+    except Exception as e:
+        logger.error(f"[RTU {rtu_id}] Write Error: {e}")
+        # 에러가 났을 때만 선을 뽑고 캐시에서 지움 (다음 번에 다시 꽂도록)
         await _maybe_await(client.close())
-    return False
+        if host_port in _write_clients:
+            del _write_clients[host_port]
+        return False
 
 
 async def modbus_poller_loop(rtu_id: int) -> None:
@@ -152,9 +164,8 @@ async def modbus_poller_loop(rtu_id: int) -> None:
                         target_state.last_temp = sample.temp
                         target_state.last_mlss = sample.mlss
                         target_state.last_ph = sample.ph
-                        target_state.last_valve_pos = (
-                            sample.valve_pos
-                        )  # 🚀 UI 반영을 위한 상태 갱신 추가!
+                        target_state.last_valve_pos = sample.valve_pos
+                        target_state.last_hz = sample.pump_hz  # 🚀 AI 상태 동기화 추가!
 
                         try:
                             ingest_q.put_nowait(sample)

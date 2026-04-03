@@ -1,678 +1,60 @@
 # app/workers/manager.py
+import sys
 
-"""
-Omega Grade v2 (Disk-Safe, Operationally Honest, Windows-Compatible) + N-Scale Multi-Device Ready (JSON File-based)
-+ [NEW] Hybrid Valve-Pump Control Engine (AI Hz + Smart Valve)
-"""
+if sys.stdout is not None:
+    sys.stdout.reconfigure(encoding="utf-8")
+if sys.stderr is not None:
+    sys.stderr.reconfigure(encoding="utf-8")
 
 import asyncio
 import logging
 import os
-import random
-import shutil
-import sys
 import threading
 import time
-import pickle
-import lzma
-import math
-from collections import deque
+import traceback
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
-from typing import Any, Optional, Set, Dict
+from logging.handlers import TimedRotatingFileHandler
+from typing import Dict, Set, Any
 
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from pydantic import BaseModel, Field
-from torch.utils.tensorboard import SummaryWriter
-
+# 🚀 중앙 통제식 경로 설정 불러오기
+from app.core.config import get_settings
 from app.core.device_config import load_device_configs, save_device_configs, get_device_config
 from app.models.settings import BackendType
-
-from app.stream.state import command_q, sys_states, get_sys_state
+from app.stream.state import command_q, sys_states
 from app.workers.db_writer import run_db_writer
 from app.workers.modbus_rtu_poller import modbus_poller_loop as rtu_poller_loop
 from app.workers.modbus_poller import modbus_poller_loop as tcp_poller_loop
 from app.workers.modbus_poller import write_hr_single
 from app.workers.opcua_poller import run_opcua_poller
-
-from app.workers.ai_state import ai_state
 from app.workers.ai_state import get_ai_state
 
+from app.workers.ai.config import SITE, _is_windows, STRICT_DURABILITY
+from app.workers.ai.agent import ImmortalAgent
+from app.workers.ai.utils import SafetyLayer
 
-# -----------------------------------------------------------------------------
-# 0. GLOBAL CONFIGURATION
-# -----------------------------------------------------------------------------
-logger = logging.getLogger("IMMORTAL_AI")
+settings = get_settings()
+
+# =====================================================================
+# 매니저 전용 애플리케이션 이벤트 로거 세팅 (30일 Retention 적용)
+# =====================================================================
+logger = logging.getLogger("IMMORTAL_AI_MANAGER")
 logger.setLevel(logging.INFO)
 
-BASE_PATH = Path(__file__).resolve().parent
-DATA_DIR = BASE_PATH / "data"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+log_file_path = settings.APP_LOG_DIR / "manager.log"
+file_handler = TimedRotatingFileHandler(
+    filename=str(log_file_path),
+    when="midnight",
+    interval=1,
+    backupCount=30,
+    encoding="utf-8",
+)
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - [%(funcName)s] %(message)s")
+file_handler.setFormatter(formatter)
+
+if not logger.handlers:
+    logger.addHandler(file_handler)
 
-_is_windows = os.name == "nt"
-_default_strict = "0" if _is_windows else "1"
 
-STRICT_DURABILITY = os.getenv("STRICT_DURABILITY", _default_strict) == "1"
-STRICT_DIRSYNC = os.getenv("STRICT_DIRSYNC", "1") == "1"
-
-if _is_windows and STRICT_DURABILITY:
-    raise RuntimeError(
-        "STRICT_DURABILITY=1 on Windows cannot guarantee DB-grade durability. "
-        "Set STRICT_DURABILITY=0 or run on POSIX filesystem."
-    )
-
-
-class SystemConfig(BaseModel):
-    name: str = "ESA_Final_Product"
-    air_start_hz: float = Field(default=28.0, ge=0.0, le=60.0)
-    min_hz: float = Field(default=15.0, ge=0.0)
-    max_hz: float = Field(default=50.0, ge=0.0, le=60.0)
-    dt: float = 2.0
-    base_valve_pos: float = 80.0
-    batch_size: int = 64
-    memory_capacity: int = 50000
-    learning_rate: float = 0.0003
-    train_mode: bool = True
-
-
-SITE = SystemConfig()
-
-
-# -----------------------------------------------------------------------------
-# 1. UTILS & SAFETY helpers (Numpy Free)
-# -----------------------------------------------------------------------------
-def _safe_float_opt(x: Any, default: Optional[float] = None) -> Optional[float]:
-    try:
-        if x is None or isinstance(x, bool):
-            return default
-        v = float(x)
-        return v if math.isfinite(v) else default
-    except Exception:
-        return default
-
-
-def _safe_float(x: Any, default: float) -> float:
-    v = _safe_float_opt(x, default=None)
-    return v if v is not None else default
-
-
-def _clamp(x: float, lo: float, hi: float) -> float:
-    return lo if x < lo else hi if x > hi else x
-
-
-def _unique_suffix() -> str:
-    return f"{os.getpid()}.{time.time_ns()}.{random.getrandbits(32):08x}"
-
-
-def _unique_tmp(path: Path) -> Path:
-    return path.with_name(f"{path.name}.tmp.{_unique_suffix()}")
-
-
-def _unique_corrupt(path: Path) -> Path:
-    return path.with_name(f"{path.name}.corrupt.{_unique_suffix()}")
-
-
-def _fsync_fd(fd: int) -> None:
-    try:
-        os.fsync(fd)
-    except Exception:
-        if STRICT_DURABILITY:
-            raise
-
-
-def _fsync_path_ro(path: Path) -> None:
-    fd = None
-    try:
-        flags = os.O_RDONLY
-        if hasattr(os, "O_CLOEXEC"):
-            flags |= getattr(os, "O_CLOEXEC")
-        fd = os.open(str(path), flags)
-        os.fsync(fd)
-    except Exception:
-        if STRICT_DURABILITY:
-            raise
-    finally:
-        if fd is not None:
-            try:
-                os.close(fd)
-            except Exception:
-                pass
-
-
-def _fsync_dir(target_path: Path) -> None:
-    if os.name == "nt":
-        return
-    parent = target_path.parent
-    if not parent.is_dir():
-        return
-    flags = os.O_RDONLY
-    if hasattr(os, "O_DIRECTORY"):
-        flags |= getattr(os, "O_DIRECTORY")
-    if hasattr(os, "O_CLOEXEC"):
-        flags |= getattr(os, "O_CLOEXEC")
-    fd = None
-    try:
-        fd = os.open(str(parent), flags)
-        os.fsync(fd)
-    except Exception:
-        if STRICT_DURABILITY and STRICT_DIRSYNC:
-            raise
-    finally:
-        if fd is not None:
-            try:
-                os.close(fd)
-            except Exception:
-                pass
-
-
-def _atomic_replace_with_barriers(tmp: Path, dst: Path) -> None:
-    os.replace(tmp, dst)
-    _fsync_path_ro(dst)
-    _fsync_dir(dst)
-
-
-def _gc_files(dir_path: Path, pattern: str, older_than_sec: int = 7 * 24 * 3600) -> None:
-    try:
-        now = time.time()
-        for p in dir_path.glob(pattern):
-            try:
-                if not p.is_file():
-                    continue
-                if older_than_sec <= 0:
-                    p.unlink()
-                else:
-                    if now - p.stat().st_mtime > older_than_sec:
-                        p.unlink()
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-
-def _durable_backup(src: Path, bak: Path) -> None:
-    tmp = _unique_tmp(bak)
-    try:
-        with open(src, "rb") as r, open(tmp, "wb") as w:
-            shutil.copyfileobj(r, w)
-            w.flush()
-            _fsync_fd(w.fileno())
-        _fsync_path_ro(tmp)
-        _atomic_replace_with_barriers(tmp, bak)
-    except Exception:
-        try:
-            if tmp.exists():
-                tmp.unlink()
-        except Exception:
-            pass
-        raise
-
-
-def _save_torch_atomic(dst: Path, obj: dict) -> None:
-    tmp = _unique_tmp(dst)
-    try:
-        with open(tmp, "wb") as f:
-            torch.save(obj, f)
-            f.flush()
-            _fsync_fd(f.fileno())
-        _fsync_path_ro(tmp)
-        _atomic_replace_with_barriers(tmp, dst)
-    except Exception:
-        try:
-            if tmp.exists():
-                tmp.unlink()
-        except Exception:
-            pass
-        raise
-
-
-def _save_lzma_pickle_atomic(dst: Path, data: Any) -> None:
-    tmp = _unique_tmp(dst)
-    try:
-        with open(tmp, "wb") as raw:
-            with lzma.open(raw, "wb") as zf:
-                pickle.dump(data, zf)
-                zf.flush()
-            raw.flush()
-            _fsync_fd(raw.fileno())
-        _fsync_path_ro(tmp)
-        _atomic_replace_with_barriers(tmp, dst)
-    except Exception:
-        try:
-            if tmp.exists():
-                tmp.unlink()
-        except Exception:
-            pass
-        raise
-
-
-class EMAFilter:
-    __slots__ = ("alpha", "value")
-
-    def __init__(self, alpha: float = 0.3):
-        self.alpha = alpha
-        self.value: Optional[float] = None
-
-    def update(self, new_val: Optional[float]) -> float:
-        safe_val = _safe_float_opt(new_val, default=None)
-        if safe_val is None:
-            return self.value if self.value is not None else 0.0
-        if self.value is None:
-            self.value = safe_val
-        else:
-            self.value = self.alpha * safe_val + (1 - self.alpha) * self.value
-        return self.value
-
-
-class SafetyLayer:
-    @staticmethod
-    def apply_guard(
-        target_do: float, current_do: float, proposed_hz: float, config: SystemConfig
-    ) -> float:
-        safe_hz = max(config.min_hz, min(config.max_hz, proposed_hz))
-        if target_do > 0.5 and current_do < 0.5:
-            if safe_hz < 35.0:
-                return 35.0
-        if current_do > target_do + 0.5:
-            if safe_hz > config.air_start_hz + 5.0:
-                safe_hz -= 1.0
-        return safe_hz
-
-
-# -----------------------------------------------------------------------------
-# 2. NEURAL NETWORK & MEMORY
-# -----------------------------------------------------------------------------
-class DuelingQNetwork(nn.Module):
-    def __init__(self, state_dim: int, action_dim: int):
-        super().__init__()
-        self.feature_layer = nn.Sequential(
-            nn.Linear(state_dim, 128),
-            nn.LayerNorm(128),
-            nn.ReLU(),
-            nn.Linear(128, 128),
-            nn.LayerNorm(128),
-            nn.ReLU(),
-        )
-        self.value_stream = nn.Sequential(nn.Linear(128, 64), nn.ReLU(), nn.Linear(64, 1))
-        self.advantage_stream = nn.Sequential(
-            nn.Linear(128, 64), nn.ReLU(), nn.Linear(64, action_dim)
-        )
-        self.apply(self._init_weights)
-
-    @staticmethod
-    def _init_weights(m):
-        if isinstance(m, nn.Linear):
-            nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
-
-    def forward(self, x):
-        features = self.feature_layer(x)
-        values = self.value_stream(features)
-        advantages = self.advantage_stream(features)
-        return values + (advantages - advantages.mean(dim=1, keepdim=True))
-
-
-class ReplayBuffer:
-    def __init__(self, capacity: int = 50000, state_dim: int = 8):
-        self.buffer = deque(maxlen=capacity)
-        self.state_dim = int(state_dim)
-
-    @staticmethod
-    def _to_float_list(x) -> list[float]:
-        if x is None:
-            return []
-        if torch.is_tensor(x):
-            x = x.detach().cpu().tolist()
-        if isinstance(x, (int, float)):
-            return [float(x)]
-        try:
-            return [float(v) for v in list(x)]
-        except Exception:
-            return []
-
-    def _sanitize_transition(self, item):
-        try:
-            s, a, r, ns, d = item
-            s = self._to_float_list(s)
-            ns = self._to_float_list(ns)
-            if len(s) != self.state_dim or len(ns) != self.state_dim:
-                return None
-            return (s, int(a), float(r), ns, float(bool(d)))
-        except Exception:
-            return None
-
-    def push(self, state, action, reward, next_state, done) -> None:
-        s = self._to_float_list(state)
-        ns = self._to_float_list(next_state)
-        if len(s) != self.state_dim or len(ns) != self.state_dim:
-            return
-        self.buffer.append((s, int(action), float(reward), ns, float(bool(done))))
-
-    def sample(self, batch_size: int):
-        batch = random.sample(self.buffer, batch_size)
-        states = [b[0] for b in batch]
-        actions = [b[1] for b in batch]
-        rewards = [b[2] for b in batch]
-        next_states = [b[3] for b in batch]
-        dones = [b[4] for b in batch]
-        return states, actions, rewards, next_states, dones
-
-    def __len__(self) -> int:
-        return len(self.buffer)
-
-    def save_memory_compressed(self, path: Path, snapshot=None) -> None:
-        _save_lzma_pickle_atomic(path, snapshot if snapshot is not None else self.buffer)
-
-    def load_memory_compressed(self, path: Path) -> None:
-        if not path.exists():
-            return
-        try:
-            with lzma.open(path, "rb") as f:
-                raw = pickle.load(f)
-            loaded, dropped = 0, 0
-            for item in raw:
-                sani = self._sanitize_transition(item)
-                if sani is None:
-                    dropped += 1
-                    continue
-                self.buffer.append(sani)
-                loaded += 1
-            logger.info("📂 Memory Loaded: %d items. (dropped=%d)", loaded, dropped)
-        except Exception:
-            try:
-                corrupt = _unique_corrupt(path)
-                os.replace(path, corrupt)
-                _fsync_dir(corrupt)
-            except Exception:
-                pass
-
-
-# -----------------------------------------------------------------------------
-# 3. IMMORTAL AGENT
-# -----------------------------------------------------------------------------
-class ImmortalAgent:
-    def __init__(self, config: SystemConfig, rtu_id: int):
-        self.cfg = config
-        self.rtu_id = rtu_id
-
-        self.brain_path = DATA_DIR / f"immortal_brain_v2_rtu_{self.rtu_id}.pth"
-        self.memory_path = DATA_DIR / f"immortal_memory_v2_rtu_{self.rtu_id}.pkl.xz"
-
-        self.state_dim = 8
-        self.my_state = get_ai_state(self.rtu_id)
-        self.action_map = [-2.0, -1.0, -0.5, -0.1, 0.0, 0.1, 0.5, 1.0, 2.0]
-        self.action_dim = len(self.action_map)
-        self.device = torch.device("cpu")
-        self._lock = threading.RLock()
-
-        self.policy_net = DuelingQNetwork(self.state_dim, self.action_dim).to(self.device)
-        self.target_net = DuelingQNetwork(self.state_dim, self.action_dim).to(self.device)
-        self.target_net.load_state_dict(self.policy_net.state_dict())
-        self.target_net.eval()
-
-        self.optimizer = optim.AdamW(self.policy_net.parameters(), lr=self.cfg.learning_rate)
-        self.memory = ReplayBuffer(capacity=self.cfg.memory_capacity, state_dim=self.state_dim)
-
-        self.memory.load_memory_compressed(self.memory_path)
-        self.gamma = 0.98
-        self.tau = 0.005
-        self.epsilon = 1.0
-        self.epsilon_min = 0.05
-        self.epsilon_decay = 0.9995
-
-        self.integral_error = 0.0
-        self.history = deque(maxlen=10)
-        self.last_state = None
-        self.last_action_idx = None
-        self.current_hz = 30.0
-        self.steps_done = 0
-
-        self.filter_do = EMAFilter(alpha=0.4)
-        self.filter_temp = EMAFilter(alpha=0.1)
-        self.writer = SummaryWriter(log_dir=str(DATA_DIR / f"runs_rtu_{self.rtu_id}"))
-
-        self._load_brain()
-
-        self.my_state.update(
-            action_map=[float(x) for x in self.action_map],
-            train_mode=self.cfg.train_mode,
-            steps_done=int(self.steps_done),
-            epsilon=float(self.epsilon if self.cfg.train_mode else 0.0),
-        )
-
-    def _load_brain(self) -> None:
-        if not self.brain_path.exists():
-            return
-        try:
-            checkpoint = torch.load(self.brain_path, map_location=self.device)
-            state_dict, opt_state, version = None, None, None
-
-            if isinstance(checkpoint, dict) and "model_state" in checkpoint:
-                version = checkpoint.get("version", None)
-                state_dict = checkpoint["model_state"]
-                self.steps_done = int(checkpoint.get("steps_done", 0))
-                self.epsilon = float(checkpoint.get("epsilon", 1.0))
-                opt_state = checkpoint.get("optimizer_state", None)
-            else:
-                state_dict = checkpoint
-                self.steps_done = int(len(self.memory))
-                self.epsilon = float(self.epsilon_min)
-                migrated_data = {
-                    "version": 2,
-                    "model_state": state_dict,
-                    "optimizer_state": self.optimizer.state_dict(),
-                    "steps_done": self.steps_done,
-                    "epsilon": self.epsilon,
-                }
-                try:
-                    if self.brain_path.exists():
-                        _durable_backup(
-                            self.brain_path,
-                            self.brain_path.with_suffix(self.brain_path.suffix + ".bak_legacy"),
-                        )
-                    _save_torch_atomic(self.brain_path, migrated_data)
-                except Exception:
-                    pass
-                opt_state, version = None, 2
-
-            if state_dict:
-                current_dict = self.policy_net.state_dict()
-                try:
-                    if (
-                        state_dict["feature_layer.0.weight"].shape
-                        != current_dict["feature_layer.0.weight"].shape
-                    ):
-                        old_dim = self.brain_path.with_name(self.brain_path.name + ".old_dim")
-                        shutil.move(self.brain_path, old_dim)
-                        try:
-                            _fsync_dir(old_dim)
-                        except Exception:
-                            pass
-                        return
-                except Exception:
-                    return
-
-                self.policy_net.load_state_dict(state_dict)
-                self.target_net.load_state_dict(state_dict)
-
-                if opt_state is not None:
-                    try:
-                        self.optimizer.load_state_dict(opt_state)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-    def save_checkpoint_task(self) -> None:
-        self.my_state.update(save_inflight=True)
-        try:
-            _gc_files(DATA_DIR, f"{self.brain_path.name}.tmp.*", older_than_sec=0)
-            _gc_files(DATA_DIR, f"{self.memory_path.name}.tmp.*", older_than_sec=0)
-            bak_name = self.brain_path.name + ".bak"
-            _gc_files(DATA_DIR, f"{bak_name}.tmp.*", older_than_sec=0)
-
-            with self._lock:
-                cpu_weights = {
-                    k: v.detach().cpu().clone() for k, v in self.policy_net.state_dict().items()
-                }
-                checkpoint_data = {
-                    "version": 2,
-                    "model_state": cpu_weights,
-                    "optimizer_state": self.optimizer.state_dict(),
-                    "steps_done": int(self.steps_done),
-                    "epsilon": float(self.epsilon),
-                }
-                mem_snapshot = list(self.memory.buffer) if self.cfg.train_mode else None
-
-            if self.brain_path.exists():
-                _durable_backup(self.brain_path, self.brain_path.with_name(bak_name))
-            _save_torch_atomic(self.brain_path, checkpoint_data)
-
-            if mem_snapshot is not None:
-                self.memory.save_memory_compressed(self.memory_path, snapshot=mem_snapshot)
-
-            self.my_state.update(last_save_ts=time.time(), last_save_ok=True)
-        except Exception as e:
-            self.my_state.update(last_save_ok=False, last_error=str(e))
-            raise
-        finally:
-            self.my_state.update(save_inflight=False)
-
-    def get_state_vector(self, target_do, current_do, temp, mlss, ph) -> list[float]:
-        error = target_do - current_do
-        self.history.append(current_do)
-        slope = self.history[-1] - self.history[0] if len(self.history) >= 3 else 0.0
-        self.integral_error = _clamp(self.integral_error + error, -10.0, 10.0)
-
-        raw_state = [
-            error,
-            slope * 5.0,
-            self.integral_error / 10.0,
-            (self.current_hz - 30.0) / 20.0,
-            (temp - 20.0) / 10.0,
-            (mlss - 3000.0) / 2000.0,
-            (ph - 7.0) / 2.0,
-            1.0 if target_do > current_do else -1.0,
-        ]
-        return [float(v) if math.isfinite(v) else 0.0 for v in raw_state]
-
-    def select_action(self, state_vec: list[float]) -> int:
-        self.steps_done += 1
-        current_epsilon = float(self.epsilon if self.cfg.train_mode else 0.0)
-        self.my_state.update(epsilon=current_epsilon, steps_done=int(self.steps_done))
-
-        with torch.no_grad():
-            state_tensor = torch.tensor(
-                state_vec, dtype=torch.float32, device=self.device
-            ).unsqueeze(0)
-            q_vals = self.policy_net(state_tensor)
-            q_vals_list = [float(x) for x in q_vals.squeeze(0).detach().cpu().tolist()]
-
-        if self.cfg.train_mode and random.random() < current_epsilon:
-            action = random.randint(0, self.action_dim - 1)
-        else:
-            action = int(q_vals.argmax(dim=1).item())
-
-        self.my_state.update(q_values=q_vals_list)
-        return action
-
-    def update_model(self) -> None:
-        if len(self.memory) < self.cfg.batch_size:
-            return
-        states, actions, rewards, next_states, dones = self.memory.sample(self.cfg.batch_size)
-        states_t = torch.tensor(states, dtype=torch.float32, device=self.device)
-        actions_t = torch.tensor(actions, dtype=torch.long, device=self.device).unsqueeze(1)
-        rewards_t = torch.tensor(rewards, dtype=torch.float32, device=self.device).unsqueeze(1)
-        next_states_t = torch.tensor(next_states, dtype=torch.float32, device=self.device)
-        dones_t = torch.tensor(dones, dtype=torch.float32, device=self.device).unsqueeze(1)
-
-        with torch.no_grad():
-            next_actions = self.policy_net(next_states_t).argmax(1, keepdim=True)
-            next_q_values = self.target_net(next_states_t).gather(1, next_actions)
-            target_q = rewards_t + (self.gamma * next_q_values * (1 - dones_t))
-
-        curr_q = self.policy_net(states_t).gather(1, actions_t)
-        loss = nn.SmoothL1Loss()(curr_q, target_q)
-        self.my_state.update(last_loss=float(loss.item()))
-
-        self.optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 1.0)
-        self.optimizer.step()
-
-        for target_param, local_param in zip(
-            self.target_net.parameters(), self.policy_net.parameters()
-        ):
-            target_param.data.copy_(
-                self.tau * local_param.data + (1.0 - self.tau) * target_param.data
-            )
-
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
-        if self.steps_done % 20 == 0:
-            self.writer.add_scalar("Training/Loss", float(loss.item()), int(self.steps_done))
-
-    def compute(self, target_do, raw_do, raw_temp, raw_mlss, raw_ph) -> float:
-        current_do = self.filter_do.update(_safe_float_opt(raw_do, default=None))
-        temp = self.filter_temp.update(_safe_float_opt(raw_temp, default=None))
-        safe_mlss = _safe_float(raw_mlss, default=3000.0)
-        safe_ph = _safe_float(raw_ph, default=7.0)
-        safe_target_do = _clamp(_safe_float(target_do, default=2.0), 0.0, 10.0)
-
-        self.my_state.update(
-            target_do=float(safe_target_do),
-            do_filt=float(current_do),
-            temp_filt=float(temp),
-            memory_len=int(len(self.memory)),
-        )
-
-        with self._lock:
-            current_state_vec = self.get_state_vector(
-                safe_target_do, current_do, temp, safe_mlss, safe_ph
-            )
-            self.my_state.update(state_vector=current_state_vec)
-
-            if (
-                self.cfg.train_mode
-                and self.last_state is not None
-                and self.last_action_idx is not None
-            ):
-                abs_diff = abs(safe_target_do - current_do)
-                reward = math.exp(-abs_diff * 2.0)
-                if abs_diff < 0.1:
-                    reward += 1.0
-                elif abs_diff > 1.0:
-                    reward -= 1.0
-                if self.current_hz > 45.0:
-                    reward -= 0.05
-                self.my_state.update(last_reward=float(reward))
-
-                self.memory.push(
-                    self.last_state, self.last_action_idx, reward, current_state_vec, False
-                )
-                self.update_model()
-
-            action_idx = self.select_action(current_state_vec)
-            delta_hz = self.action_map[action_idx]
-            proposed_hz = self.current_hz + delta_hz
-            final_hz = SafetyLayer.apply_guard(safe_target_do, current_do, proposed_hz, self.cfg)
-
-            self.last_state = current_state_vec
-            self.last_action_idx = action_idx
-            self.current_hz = float(final_hz)
-
-            self.my_state.update(
-                proposed_hz=float(proposed_hz),
-                current_hz=float(final_hz),
-                last_action_idx=int(action_idx),
-                last_action_delta=float(delta_hz),
-            )
-            return float(self.current_hz)
-
-
-# -----------------------------------------------------------------------------
-# 4. MANAGER (The Orchestrator) - 🚀 다중 장비 스케일 아웃 엔진 + Hybrid Control
-# -----------------------------------------------------------------------------
 class WorkerManager:
     def __init__(self) -> None:
         self._core_tasks: list[asyncio.Task] = []
@@ -690,35 +72,58 @@ class WorkerManager:
         self._running = False
 
     def _get_agent(self, rtu_id: int) -> ImmortalAgent:
+        """RTU별 독립된 AI 에이전트 인스턴스 반환"""
         if rtu_id not in self.ctrls:
             self.ctrls[rtu_id] = ImmortalAgent(SITE, rtu_id)
         return self.ctrls[rtu_id]
 
-    # 🚀 [NEW] 하이브리드 밸브 개도율 계산 로직 (Proportional Control)
-    def _calculate_optimal_valve(self, target_do: float, curr_do: float) -> float:
-        """
-        DO 오차(Error)를 기반으로 최적의 밸브 개도율(%)을 계산합니다.
-        - 에러 ≤ 0: 밸브 차단 (0%)
-        - 에러 ≥ 1.5: 밸브 풀개방 (100%)
-        - 에러 0 ~ 1.5: 비례 제어 (30% ~ 100%)
-        """
-        do_error = target_do - curr_do
+    def _calculate_optimal_valve(
+        self, state: Any, target_do: float, curr_do: float, current_valve: float
+    ) -> float:
+        """🚀 [실전 산업용 밸브 제어 로직 - PI & Deadband & Anti-Windup 적용]"""
+        error = target_do - curr_do
+        deadband = 0.1  # 정밀 제어를 위해 데드밴드를 축소
 
-        if do_error <= 0.0:
-            return 0.0  # 산소 충분, 밸브 차단 (물만 순환)
+        # 1. 데드밴드 이내면 조작 안 함, 오차 누적도 멈춤 (안정성 확보)
+        if abs(error) <= deadband:
+            return current_valve
 
-        if do_error >= 1.5:
-            return 100.0  # 산소 심각하게 부족, 밸브 100%
+        # 2. PI 제어 게인 (현장 상황에 맞게 튜닝)
+        Kp = 20.0 if error > 0 else 30.0  # 비례(P) 게인
+        Ki = 0.5  # 적분(I) 게인
 
-        # 목표치 근접 구간: 30%를 기본 하한선으로 잡고 남은 70%를 에러 비율에 맞춰 개방
-        p_ratio = do_error / 1.5
-        valve_pos = 30.0 + (70.0 * p_ratio)
+        # 🚀 [FIX] 3. 오차 누적 (Integral) - 속성 존재 여부 확인 후 초기화
+        if not hasattr(state, "error_sum"):
+            state.error_sum = 0.0
+        state.error_sum += error
 
-        return max(0.0, min(100.0, valve_pos))
+        # 4. Anti-windup (적분 누적치 제한: I-term 폭주 방지)
+        max_i_term = 30.0
+        if (state.error_sum * Ki) > max_i_term:
+            state.error_sum = max_i_term / Ki
+        elif (state.error_sum * Ki) < -max_i_term:
+            state.error_sum = -max_i_term / Ki
+
+        # 5. PI 연산 적용
+        p_term = error * Kp
+        i_term = state.error_sum * Ki
+        target_pos = current_valve + p_term + i_term
+
+        # 6. 밸브 물리적 한계 (0~100%) 제한
+        target_pos = max(0.0, min(100.0, target_pos))
+
+        # 7. 기계 보호: 한 번에 움직이는 최대 폭 제한
+        max_step = 5.0
+        if target_pos > current_valve + max_step:
+            return current_valve + max_step
+        elif target_pos < current_valve - max_step:
+            return current_valve - max_step
+
+        return target_pos
 
     async def initialize(self) -> None:
+        """매니저 초기화 및 코어 스레드/태스크 가동"""
         self._running = True
-
         self.compute_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="AI_Core")
         self.io_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="IO_Saver")
 
@@ -726,34 +131,44 @@ class WorkerManager:
             logger.warning("Windows detected: STRICT_DURABILITY defaulted to 0 (warn-only).")
 
         loop = asyncio.get_running_loop()
-        self._core_tasks.append(loop.create_task(run_db_writer(), name="DBWriter"))
-        self._core_tasks.append(loop.create_task(self._control_loop(), name="ControlLoop"))
-        self._core_tasks.append(
-            loop.create_task(self._command_dispatcher_loop(), name="CommandDispatcher")
-        )
+
+        # 🚀 [빅데이터 기반 AI 로깅] 로거 임포트 (예외 처리)
+        try:
+            from app.workers.ai_logger import run_ai_logger
+
+            ai_logger_task = loop.create_task(run_ai_logger(), name="AILogger")
+        except ImportError:
+            logger.warning("ai_logger 모듈을 찾을 수 없습니다. AI 빅데이터 로깅이 비활성화됩니다.")
+            ai_logger_task = None
+
+        tasks_to_run = [
+            loop.create_task(run_db_writer(), name="DBWriter"),
+            loop.create_task(self._control_loop(), name="ControlLoop"),
+            loop.create_task(self._command_dispatcher_loop(), name="CommandDispatcher"),
+        ]
+        if ai_logger_task:
+            tasks_to_run.append(ai_logger_task)
+
+        self._core_tasks.extend(tasks_to_run)
 
         configs = load_device_configs()
         for config_dict in configs:
             await self.start_poller(config_dict)
             get_ai_state(config_dict["id"]).update(running=True, fatal=False, last_error=None)
 
-        logger.info(f"✅ Immortal AI Manager Started (Loaded {len(configs)} devices from JSON).")
+        logger.info(
+            f"✅ Immortal AI Manager Started (Loaded {len(configs)} devices). Log Path: {log_file_path}"
+        )
 
     async def add_worker(self, rtu_id: int) -> None:
         config_dict = get_device_config(rtu_id)
         if config_dict:
             await self.start_poller(config_dict)
             get_ai_state(rtu_id).update(running=True, fatal=False, last_error=None)
-            logger.info(
-                f"🟢 [Device {rtu_id}] 파일에서 설정을 읽어 워커가 성공적으로 추가되었습니다."
-            )
         else:
-            logger.error(
-                f"❌ [Device {rtu_id}] device_config.json 에서 해당 기기를 찾을 수 없어 워커를 추가할 수 없습니다."
-            )
+            logger.error(f"❌ [Device {rtu_id}] device_config.json 에서 기기를 찾을 수 없습니다.")
 
     async def update_worker(self, rtu_id: int) -> None:
-        logger.info(f"🔄 [Device {rtu_id}] 통신 워커 재시작을 시도합니다.")
         await self.add_worker(rtu_id)
 
     async def start_poller(self, config: dict) -> None:
@@ -778,7 +193,6 @@ class WorkerManager:
 
         if task:
             self._poller_tasks[rtu_id] = task
-            logger.info(f"🏭 Deployed Poller Worker for Device [{rtu_id}] ({protocol_str})")
 
     async def stop_poller(self, rtu_id: int) -> None:
         if rtu_id in self._poller_tasks:
@@ -788,17 +202,13 @@ class WorkerManager:
                 await task
             except asyncio.CancelledError:
                 pass
-            logger.info(f"🛑 Stopped Poller Worker for Device [{rtu_id}]")
 
     async def apply_comm_settings(self, rtu_id: int, port: str, baudrate: int) -> bool:
-        logger.info(f"🔄 UI 요청: [Device {rtu_id}] 통신 설정 변경 ({port} @ {baudrate}bps)")
         configs = load_device_configs()
         found = False
         for c in configs:
             if c["id"] == rtu_id:
-                c["host"] = port
-                c["port"] = baudrate
-                c["protocol"] = BackendType.MODBUS.value
+                c["host"], c["port"], c["protocol"] = port, baudrate, BackendType.MODBUS.value
                 found = True
                 break
 
@@ -820,9 +230,7 @@ class WorkerManager:
         return True
 
     async def disconnect_comm(self, rtu_id: int) -> None:
-        logger.info(f"🛑 UI 요청: [Device {rtu_id}] 통신 강제 해제")
         await self.stop_poller(rtu_id)
-
         configs = load_device_configs()
         for c in configs:
             if c["id"] == rtu_id:
@@ -832,25 +240,23 @@ class WorkerManager:
 
     async def stop_workers(self) -> None:
         self._running = False
-        for rtu_id in self._poller_tasks.keys():
-            get_ai_state(rtu_id).update(running=False)
-
         for rtu_id in list(self._poller_tasks.keys()):
+            get_ai_state(rtu_id).update(running=False)
             await self.stop_poller(rtu_id)
 
         for task in self._core_tasks:
             task.cancel()
         if self._core_tasks:
             await asyncio.gather(*self._core_tasks, return_exceptions=True)
-        self._core_tasks = []
+        self._core_tasks.clear()
 
         if self._bg_tasks:
             await asyncio.gather(*self._bg_tasks, return_exceptions=True)
             self._bg_tasks.clear()
 
         self.compute_executor.shutdown(wait=True)
-
         loop = asyncio.get_running_loop()
+
         for agent in self.ctrls.values():
             try:
                 await loop.run_in_executor(self.io_executor, agent.save_checkpoint_task)
@@ -863,26 +269,22 @@ class WorkerManager:
             self.io_executor.shutdown(wait=True)
         except Exception:
             pass
-        logger.info("👋 System Shutdown Complete.")
 
     def _fatal_persist(self, exc: BaseException) -> None:
         with self._fatal_lock:
             if self._fatal_triggered:
                 return
             self._fatal_triggered = True
+
         for rtu_id in list(self._poller_tasks.keys()) + list(self.ctrls.keys()):
             get_ai_state(rtu_id).update(fatal=True, running=False, last_error=str(exc))
-        logger.critical("FATAL: Checkpoint persistence failed.", exc_info=exc)
+
         self._running = False
         for t in self._core_tasks + list(self._poller_tasks.values()):
             t.cancel()
 
         def _exit_worker():
             try:
-                try:
-                    logging.shutdown()
-                except Exception:
-                    pass
                 time.sleep(0.2)
             finally:
                 os._exit(1)
@@ -909,38 +311,117 @@ class WorkerManager:
 
         task.add_done_callback(_done)
 
+    # =====================================================================
+    # 🎯 분배기 매핑
+    # =====================================================================
     async def _command_dispatcher_loop(self) -> None:
-        logger.info("📡 Modbus Command Dispatcher Started (Fully Dynamic Mode).")
         while self._running:
             try:
                 rtu_id, cmd, val = await command_q.get()
-
                 config_dict = get_device_config(rtu_id)
                 tags = config_dict.get("tags", {})
 
                 if cmd == "set_hz":
-                    target_val = int(val * 10.0)
                     addr = tags.get("set_hz", {}).get("mb_addr", 29)
-                    await write_hr_single(rtu_id, addr, target_val)
+                    await write_hr_single(rtu_id, addr, int(val * 10.0))
 
-                elif cmd in tags:
-                    target_val = int(val)
-                    addr = tags[cmd].get("mb_addr")
-                    if addr is not None:
-                        await write_hr_single(rtu_id, addr, target_val)
+                elif cmd == "valve_pos":
+                    addr = tags.get("valve_pos", {}).get("mb_addr", 30)
+                    await write_hr_single(rtu_id, addr, int(val))
+
+                # 🚀 [FIX] Target DO 명령 처리 분기 추가 (메모리만 업데이트)
+                elif cmd == "target_do":
+                    from app.stream.state import get_sys_state
+
+                    state = get_sys_state(rtu_id)
+                    state.target_do = float(val)
 
                 elif str(cmd).startswith("raw_"):
-                    target_val = int(val)
                     addr = int(str(cmd).split("_")[1])
-                    await write_hr_single(rtu_id, addr, target_val)
+                    await write_hr_single(rtu_id, addr, int(val))
+
+                elif cmd in tags:
+                    addr = tags[cmd].get("mb_addr")
+                    if addr is not None:
+                        await write_hr_single(rtu_id, addr, int(val))
 
                 command_q.task_done()
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"❌ Command Dispatch Error: {e}", exc_info=True)
+                logger.error(f"Command Dispatch Error: {e}", exc_info=True)
                 await asyncio.sleep(1.0)
 
+    # =====================================================================
+    # 🎯 로직 격리: 밸브와 AI 펌 제어 완벽 분리
+    # =====================================================================
+    async def _process_single_rtu(
+        self, loop: asyncio.AbstractEventLoop, rtu_id: int, state: Any
+    ) -> None:
+        agent = self._get_agent(rtu_id)
+
+        # 1. 상태값 로드
+        target_do = getattr(state, "target_do", 2.0)
+        curr_do = getattr(state, "last_do", 0.0)
+        temp = getattr(state, "last_temp", 20.0)
+        mlss = getattr(state, "last_mlss", 3000.0)
+        ph = getattr(state, "last_ph", 7.0)
+        current_valve = getattr(state, "last_valve_pos", 0.0)
+        current_hz = getattr(state, "last_hz", 0.0)
+
+        # 2. 밸브 연산 및 하달 (AI와 별개로 100% 동작)
+        try:
+            target_valve = self._calculate_optimal_valve(state, target_do, curr_do, current_valve)
+            await command_q.put((rtu_id, "valve_pos", float(target_valve)))
+        except Exception as e:
+            logger.error(f"🚨 [RTU {rtu_id}] 밸브 제어 로직 에러: {e}")
+
+        # 3. 펌프 연산 및 하달 (AI 제어)
+        try:
+            agent.current_hz = current_hz
+
+            ai_proposed_hz = await loop.run_in_executor(
+                self.compute_executor, agent.compute, target_do, curr_do, temp, mlss, ph
+            )
+            target_hz = SafetyLayer.apply_guard(current_hz, ai_proposed_hz, SITE)
+
+            # 🚀 [빅데이터 기반 AI 로깅] 연산이 끝났으므로 큐에 기록 전송
+            try:
+                from app.stream.state import ai_log_q, AILog
+
+                log_data = AILog(
+                    ts=time.time(),
+                    rtu_id=rtu_id,
+                    target_do=target_do,
+                    curr_do=curr_do,
+                    temp=temp,
+                    mlss=mlss,
+                    ph=ph,
+                    current_valve=current_valve,
+                    current_hz=current_hz,
+                    ai_proposed_hz=ai_proposed_hz,
+                    final_hz=target_hz,
+                )
+                ai_log_q.put_nowait(log_data)
+            except Exception as log_e:
+                logger.error(f"🚨 [AI 로그 저장 실패] 원인: {log_e}")
+
+            await command_q.put((rtu_id, "set_hz", float(target_hz)))
+            get_ai_state(rtu_id).update(last_error=None)
+
+            # 성공적인 제어 사이클 로그 (Debug 레벨 등 필요에 따라 조정 가능)
+            # logger.debug(f"[RTU {rtu_id}] Control Cycle Complete - Valve: {target_valve:.1f}, Hz: {target_hz:.1f}")
+
+        except Exception as e:
+            error_msg = f"AI 모델 연산 에러: {type(e).__name__} - {str(e)}"
+            logger.error(f"🚨🚨 [RTU {rtu_id}] {error_msg}")
+            logger.error(traceback.format_exc())
+            get_ai_state(rtu_id).update(last_error=error_msg)
+            await command_q.put((rtu_id, "set_hz", float(current_hz)))
+
+    # =====================================================================
+    # 루프 엔진
+    # =====================================================================
     async def _control_loop(self) -> None:
         loop = asyncio.get_running_loop()
         save_tick = 0
@@ -950,31 +431,7 @@ class WorkerManager:
             try:
                 for rtu_id, state in sys_states.items():
                     if getattr(state, "auto_mode", False):
-                        agent = self._get_agent(rtu_id)
-
-                        target_do = getattr(state, "target_do", 2.0)
-                        curr_do = getattr(state, "last_do", 0.0)
-                        temp = getattr(state, "last_temp", 0.0)
-                        mlss = getattr(state, "last_mlss", 0.0)
-                        ph = getattr(state, "last_ph", 0.0)
-
-                        # 1. AI: 최적의 펌프 주파수(Hz) 계산
-                        target_hz = await loop.run_in_executor(
-                            self.compute_executor,
-                            agent.compute,
-                            target_do,
-                            curr_do,
-                            temp,
-                            mlss,
-                            ph,
-                        )
-
-                        # 2. 🚀 [NEW] 스마트 제어기: 최적의 밸브 개도율(%) 자체 계산
-                        target_valve = self._calculate_optimal_valve(target_do, curr_do)
-
-                        # 🚀 [패치 완료] 현장 스위치 방어막 완전 삭제! 무조건 명령을 큐에 꽂아 넣습니다.
-                        await command_q.put((rtu_id, "valve_pos", float(target_valve)))
-                        await command_q.put((rtu_id, "set_hz", float(target_hz)))
+                        await self._process_single_rtu(loop, rtu_id, state)
 
                 save_tick += 1
                 if save_tick >= 150:
@@ -994,7 +451,7 @@ class WorkerManager:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("Loop Error: %s", e, exc_info=True)
+                logger.error(f"Control Loop Error: {e}", exc_info=True)
                 await asyncio.sleep(1.0)
 
             elapsed = time.monotonic() - start_time

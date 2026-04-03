@@ -21,3 +21,5 @@ data/
 .DS_Store
 Thumbs.db
 '@ | Out-File -Encoding utf8 ".gitignore"
+simulator/logs/*.txt
+simulator/logs/*.log

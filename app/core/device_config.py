@@ -1,11 +1,17 @@
 # app/core/device_config.py
 import json
-from pathlib import Path
+import logging
 from typing import List, Dict, Any
 
-# 프로젝트 최상단에 생성될 JSON 파일 이름도 직관적으로 변경!
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-CONFIG_PATH = BASE_DIR / "device_config.json"
+# 🚀 중앙 통제식 경로 설정 불러오기
+from app.core.config import get_settings
+
+logger = logging.getLogger("DEVICE_CONFIG")
+
+settings = get_settings()
+
+# 기존 최상단 루트 폴더에서 .data/ 폴더 하위로 안전하게 격리!
+CONFIG_PATH = settings.DATA_DIR / "device_config.json"
 
 
 def load_device_configs() -> List[Dict[str, Any]]:
@@ -17,18 +23,20 @@ def load_device_configs() -> List[Dict[str, Any]]:
             data = json.load(f)
             return data if isinstance(data, list) else []
     except Exception as e:
-        print(f"🚨 설정 파일 읽기 실패: {e}")
+        logger.error(f"🚨 설정 파일 읽기 실패: {e}")
         return []
 
 
 def save_device_configs(configs: List[Dict[str, Any]]) -> bool:
     """전체 기기 설정을 JSON 파일에 저장합니다."""
     try:
+        # 혹시 모를 상황을 대비해 부모 디렉토리(.data)가 있는지 한 번 더 확인 (멱등성 보장)
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             json.dump(configs, f, indent=4, ensure_ascii=False)
         return True
     except Exception as e:
-        print(f"🚨 설정 파일 저장 실패: {e}")
+        logger.error(f"🚨 설정 파일 저장 실패: {e}")
         return False
 
 

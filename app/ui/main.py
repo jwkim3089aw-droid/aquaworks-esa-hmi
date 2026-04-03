@@ -38,6 +38,9 @@ from app.api.v1.rtu_control import router as rtu_control_router
 from app.api.v1.telemetry import simulator_task
 from app.services.telemetry_store import get_store
 
+# 🚀 [ADD] 시스템 자원 모니터링 워커 임포트
+from app.workers.sys_monitor import run_sys_monitor
+
 # AI 상태 표시용
 from app.workers.ai_state import get_ai_state
 
@@ -129,13 +132,28 @@ def page() -> None:
             create_ai_panel(current_rtu=current_rtu)
 
     # =====================================================================
-    # 🌟 뷰 1: 통합 관제 대시보드 (Overview) - 꽉 막힌 공간 확장 패치!
+    # 🌟 뷰 1: 통합 관제 대시보드 (Overview) - 🚀 갯수 기반 동적 그리드 엔진
     # =====================================================================
     overview_refs: Dict[int, Dict[str, Any]] = {}
 
+    num_devices = len(devices)
+    if num_devices == 1:
+        grid_css = "grid-cols-1 max-w-[600px]"
+    elif num_devices == 2:
+        grid_css = "grid-cols-1 xl:grid-cols-2 max-w-[1200px]"
+    elif num_devices <= 4:
+        grid_css = (
+            f"grid-cols-1 lg:grid-cols-2 xl:grid-cols-{num_devices} max-w-[{500 * num_devices}px]"
+        )
+    elif num_devices <= 6:
+        grid_css = "grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 max-w-[1500px]"
+    elif num_devices <= 8:
+        grid_css = "grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 max-w-[2000px]"
+    else:
+        grid_css = "grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 max-w-[2560px]"
+
     overview_container = ui.element("div").classes(
-        # 🚀 [UI 핵심 수정] 우측에 버려지던 빈 공간을 없애고(4열 삭제), 모니터 넓이(1920px)를 꽉 채우게 3열(grid-cols-3)로 확장!
-        "w-full max-w-[1920px] mx-auto px-6 xl:px-10 grid gap-6 xl:gap-8 grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 h-full pb-10 mt-6"
+        f"w-full mx-auto px-4 grid gap-3 pb-6 mt-4 {grid_css} justify-center place-content-center"
     )
     overview_container.bind_visibility_from(current_rtu, "id", backward=lambda id: id == 0)
 
@@ -148,18 +166,18 @@ def page() -> None:
             with (
                 ui.card()
                 .classes(
-                    "bg-[#1e293b] rounded-2xl border-t-4 border-t-cyan-500 shadow-2xl cursor-pointer hover:bg-[#233044] transition-all hover:-translate-y-1 relative overflow-hidden p-0 flex flex-col"
+                    "bg-[#1e293b] rounded-xl border-t-2 border-t-cyan-500 shadow-xl cursor-pointer hover:bg-[#233044] transition-all hover:-translate-y-1 relative overflow-hidden p-0 flex flex-col"
                 )
                 .on("click", lambda e, id=r_id: handle_rtu_change(id))
             ):
                 with ui.row().classes(
-                    "w-full justify-between items-center px-6 py-5 bg-slate-800/40 border-b border-slate-700/50"
+                    "w-full justify-between items-center px-4 py-2 bg-slate-800/40 border-b border-slate-700/50"
                 ):
                     with ui.row().classes("items-center gap-2"):
-                        ui.icon("circle", color="green-400", size="10px").classes(
+                        ui.icon("circle", color="green-400", size="8px").classes(
                             "animate-pulse shadow-[0_0_8px_rgba(74,222,128,0.8)]"
                         )
-                        ui.label(r_name).classes("text-xl font-extrabold text-white tracking-wide")
+                        ui.label(r_name).classes("text-lg font-bold text-white tracking-wide")
 
                     def toggle_ai(e, rtu_id=r_id):
                         state = get_sys_state(rtu_id)
@@ -177,16 +195,13 @@ def page() -> None:
 
                     ai_btn = (
                         ui.button("MANUAL")
-                        .classes(
-                            "text-[11px] font-bold px-3 py-1.5 rounded transition-all cursor-pointer shadow-md"
-                        )
+                        .classes("text-[9px] font-bold px-2 py-1 rounded cursor-pointer shadow-md")
                         .props("unelevated dense color=grey-8")
                         .on("click.stop", toggle_ai)
                     )
                     overview_refs[r_id]["ai_btn"] = ai_btn
 
-                # 🎯 [UI 패치] 카드가 좌우로 넓어진 만큼, 박스 간격(gap-4)과 내부 여백(py-4 px-2)을 늘려 시원시원하게 만듦
-                with ui.grid(columns=3).classes("w-full gap-3 xl:gap-4 p-5 xl:p-6 flex-grow"):
+                with ui.grid(columns=3).classes("w-full gap-2 p-3 flex-grow"):
                     for m in metrics:
                         m_key = str(m.get("key", title_of(m)))
                         if m_key in ["pump_hz", "valve_pos"]:
@@ -196,10 +211,10 @@ def page() -> None:
                         m_unit = unit_map.get(m_key.lower(), "")
 
                         with ui.column().classes(
-                            "bg-slate-900/40 rounded-xl py-3 xl:py-4 px-1 xl:px-2 w-full shadow-inner border border-slate-700/30 flex flex-col items-center justify-center"
+                            "bg-slate-900/40 rounded-lg py-2 px-1 w-full shadow-inner border border-slate-700/30 flex flex-col items-center justify-center"
                         ):
                             ui.label(m_title).classes(
-                                "text-[10px] xl:text-[11px] text-slate-400 font-semibold tracking-wider leading-none mb-2 w-full text-center"
+                                "text-[9px] text-slate-400 font-semibold tracking-wider leading-none mb-1 w-full text-center truncate"
                             )
 
                             with ui.row().classes(
@@ -214,22 +229,21 @@ def page() -> None:
                                         else "text-gray-100"
                                     )
                                 )
-                                # 🎯 늘어난 여백에 맞춰 숫자 크기도 조금 더 시원하게 (xl:text-[1.6rem])
                                 lbl_val = ui.label("--").classes(
-                                    f"text-2xl xl:text-[1.6rem] font-mono {txt_color} font-bold leading-none"
+                                    f"text-xl font-mono {txt_color} font-bold leading-none"
                                 )
                                 overview_refs[r_id][m_key] = lbl_val
 
                                 if m_unit:
                                     ui.label(m_unit).classes(
-                                        "text-[9px] xl:text-[10px] text-slate-500 font-bold whitespace-nowrap"
+                                        "text-[8px] text-slate-500 font-bold whitespace-nowrap"
                                     )
 
                 with ui.row().classes(
-                    "w-full px-5 xl:px-6 py-3 xl:py-4 items-center justify-between border-t border-slate-700/50 bg-slate-800/30"
+                    "w-full px-4 py-2 items-center justify-between border-t border-slate-700/50 bg-slate-800/30"
                 ):
                     ui.label("TARGET DO").classes(
-                        "text-[10px] xl:text-[11px] text-slate-400 font-bold tracking-widest whitespace-nowrap"
+                        "text-[9px] text-slate-400 font-bold tracking-widest whitespace-nowrap"
                     )
 
                     def update_target_do(rtu_id, delta):
@@ -240,15 +254,15 @@ def page() -> None:
                         state.auto_mode = True
                         overview_refs[rtu_id]["target_do"].set_text(f"{new_target:.1f}")
                         ui.notify(
-                            f"🚀 기계 #{rtu_id} 목표 DO 변경 및 AI 가동: {new_target:.1f}",
+                            f"🚀 AI 가동: {new_target:.1f}",
                             type="positive",
                             position="top",
-                            timeout=2.0,
+                            timeout=1.0,
                         )
                         _tick_cards()
 
-                    with ui.row().classes("items-center gap-2 flex-nowrap"):
-                        ui.button(icon="remove").props("dense flat round size=sm").classes(
+                    with ui.row().classes("items-center gap-1 flex-nowrap"):
+                        ui.button(icon="remove").props("dense flat round size=xs").classes(
                             "text-slate-400 hover:text-white"
                         ).on("click.stop", lambda e, r=r_id: update_target_do(r, -0.1))
 
@@ -256,43 +270,43 @@ def page() -> None:
 
                         with ui.row().classes("items-baseline gap-1 flex-nowrap justify-center"):
                             lbl_target = ui.label(f"{init_target:.1f}").classes(
-                                "text-xl xl:text-2xl font-mono text-cyan-300 font-bold w-10 text-right"
+                                "text-lg font-mono text-cyan-300 font-bold w-8 text-right"
                             )
                             overview_refs[r_id]["target_do"] = lbl_target
                             ui.label("mg/L").classes(
-                                "text-[9px] xl:text-[10px] text-slate-500 font-bold whitespace-nowrap"
+                                "text-[8px] text-slate-500 font-bold whitespace-nowrap"
                             )
 
-                        ui.button(icon="add").props("dense flat round size=sm").classes(
+                        ui.button(icon="add").props("dense flat round size=xs").classes(
                             "text-slate-400 hover:text-white"
                         ).on("click.stop", lambda e, r=r_id: update_target_do(r, 0.1))
 
                 with ui.row().classes(
-                    "w-full bg-[#0b1120] p-5 xl:p-6 flex-nowrap items-center justify-between"
+                    "w-full bg-[#0b1120] p-3 px-4 flex-nowrap items-center justify-between"
                 ):
-                    with ui.column().classes("items-start pl-2"):
+                    with ui.column().classes("items-start"):
                         ui.label("PUMP").classes(
-                            "text-[10px] xl:text-[11px] text-slate-500 font-bold tracking-widest"
+                            "text-[9px] text-slate-500 font-bold tracking-widest"
                         )
                         with ui.row().classes("items-baseline gap-1 flex-nowrap"):
                             lbl_pump = ui.label("--").classes(
-                                "text-3xl font-mono text-white font-bold"
+                                "text-2xl font-mono text-white font-bold"
                             )
                             ui.label("Hz").classes(
-                                "text-[11px] text-slate-600 font-bold whitespace-nowrap"
+                                "text-[9px] text-slate-600 font-bold whitespace-nowrap"
                             )
                         overview_refs[r_id]["pump_hz"] = lbl_pump
 
-                    with ui.column().classes("items-end pr-2"):
+                    with ui.column().classes("items-end"):
                         ui.label("VALVE").classes(
-                            "text-[10px] xl:text-[11px] text-slate-500 font-bold tracking-widest"
+                            "text-[9px] text-slate-500 font-bold tracking-widest"
                         )
                         with ui.row().classes("items-baseline gap-1 flex-nowrap"):
                             lbl_valve = ui.label("--").classes(
-                                "text-3xl font-mono text-green-400 font-bold"
+                                "text-2xl font-mono text-green-400 font-bold"
                             )
                             ui.label("%").classes(
-                                "text-[11px] text-slate-600 font-bold whitespace-nowrap"
+                                "text-[9px] text-slate-600 font-bold whitespace-nowrap"
                             )
                         overview_refs[r_id]["valve_pos"] = lbl_valve
 
@@ -300,7 +314,7 @@ def page() -> None:
     # 🌟 뷰 2: 개별 상세 뷰 (Detail)
     # =====================================================================
     detail_container = ui.element("div").classes(
-        "w-full max-w-[1600px] mx-auto px-6 grid gap-3 grid-cols-1 xl:grid-cols-[215px_minmax(0,1fr)] h-full mt-4"
+        "w-full max-w-[1600px] mx-auto px-6 grid gap-3 grid-cols-1 xl:grid-cols-[215px_minmax(0,1fr)] mt-4 pb-10"
     )
     detail_container.bind_visibility_from(current_rtu, "id", backward=lambda id: id != 0)
 
@@ -309,7 +323,7 @@ def page() -> None:
             metrics, active_keys, on_selection_change=lambda: asyncio.create_task(_tick_trend())
         )
 
-        with ui.element("div").classes("min-w-0 h-full flex flex-col gap-3"):
+        with ui.element("div").classes("min-w-0 flex flex-col gap-3"):
             with ui.row().classes("w-full items-start gap-3"):
                 with ui.element("div").classes("flex-1 min-w-0 w-full"):
                     _trend_chart, _tick_trend_func = create_chart_section(
@@ -486,7 +500,13 @@ _tasks: List[asyncio.Task[None]] = []
 
 async def on_startup() -> None:
     log.info("[UI] Startup Sequence...")
+
+    # 🚀 [PATCH] 버스 라우터 실행
     _tasks.append(asyncio.create_task(bus_router()))
+
+    # 🚀 [PATCH] 시스템 자원 모니터링 태스크 백그라운드 등록 (.logs/sys_resources/ CSV 생성)
+    _tasks.append(asyncio.create_task(run_sys_monitor()))
+    log.info("[UI] System Monitor Started.")
 
     try:
         s = get_settings()
@@ -568,7 +588,17 @@ if __name__ in {"__main__", "__mp_main__"}:
         "endpoint_documentation": "none",
         "uvicorn_logging_level": "warning",
     }
+
     if dev:
-        run_kwargs["reload_excludes"] = ["logs/*", "*.log", "*.db", "*.db-journal", "__pycache__"]
+        # 🚀 [PATCH] 파일 쓰기 시 무한 재시작 방지를 위해 .logs와 .data 경로 제외 추가
+        run_kwargs["reload_excludes"] = [
+            "logs/*",
+            "*.log",
+            "*.db",
+            "*.db-journal",
+            "__pycache__",
+            ".data/*",  # AI 모델 및 설정 파일 저장소
+            ".logs/*",  # 시스템 모니터링 CSV 등 신규 로깅 아키텍처 폴더
+        ]
 
     NG_UI.run(**run_kwargs)

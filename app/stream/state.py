@@ -1,7 +1,7 @@
 # app/stream/state.py
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Deque, Dict, List, Tuple
+from typing import Deque, Dict, List, Tuple, Any
 from collections import deque
 import asyncio
 import math
@@ -23,12 +23,31 @@ class Sample:
     rtu_id: int = 1  # 🚀 다중 장비 식별자 (기본값 1)
 
 
+# 🚀 [빅데이터 기반 AI 로깅] AI 연산 결과를 담을 데이터 클래스 추가
+@dataclass
+class AILog:
+    ts: float
+    rtu_id: int
+    target_do: float
+    curr_do: float
+    temp: float
+    mlss: float
+    ph: float
+    current_valve: float
+    current_hz: float
+    ai_proposed_hz: float
+    final_hz: float
+
+
 # ==========================================================
 # 전역 큐 (Queue)
 # ==========================================================
 ingest_q: "asyncio.Queue[Sample]" = asyncio.Queue(maxsize=2000)
 db_q: "asyncio.Queue[Sample]" = asyncio.Queue(maxsize=5000)
 command_q: "asyncio.Queue[tuple[int, str, float]]" = asyncio.Queue(maxsize=100)
+
+# 🚀 [빅데이터 기반 AI 로깅] 전용 큐 추가 (메모리 폭주 방지)
+ai_log_q: "asyncio.Queue[AILog]" = asyncio.Queue(maxsize=5000)
 
 # ==========================================================
 # 차트 데이터용 메모리 버퍼 (다중 장비 분리)
@@ -64,7 +83,7 @@ def _is_finite(x: float) -> bool:
     return not (math.isnan(x) or math.isinf(x))
 
 
-# 🚀 [핵심 패치] UI 호출 규격에 맞춰 (rtu_id, n) 순서로 변경했습니다!
+# 🚀 [핵심 패치] UI 호출 규격에 맞춰 (rtu_id, n) 순서 유지
 def get_last(rtu_id: int, n: int) -> Tuple[List[str], Dict[str, List[float]]]:
     if rtu_id not in _ts_bufs:
         return [], {}
@@ -96,7 +115,10 @@ class SystemState:
         self.last_temp: float = 0.0
         self.last_mlss: float = 0.0
         self.last_ph: float = 0.0
-        self.last_valve_pos: float = 0.0  # 🚀 UI 반영을 위한 밸브 현재 위치 상태 추가!
+        self.last_valve_pos: float = 0.0
+        self.last_hz: float = 0.0  # 🎯 AI 판단을 위한 펌프 현재 상태
+
+        self.error_sum: float = 0.0  # 🚀 [STEP 1 패치] 밸브 PI 제어용 적분항 누적 변수
 
         self.emergency: bool = False
         self.pump_power: bool = False
@@ -148,9 +170,8 @@ async def bus_router(poll_timeout: float = 0.5) -> None:
             state.last_temp = s.temp
             state.last_mlss = s.mlss
             state.last_ph = s.ph
-            state.last_valve_pos = (
-                s.valve_pos
-            )  # 🚀 라우터가 데이터를 받을 때 실시간 상태도 갱신하도록 추가!
+            state.last_valve_pos = s.valve_pos
+            state.last_hz = s.pump_hz  # 🎯 상태 최신화 동기화 완료
 
             await db_q.put(s)
             ingest_q.task_done()

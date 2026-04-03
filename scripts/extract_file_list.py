@@ -31,6 +31,8 @@ def list_code_files():
         ".json",
         ".xml",
         ".yaml",
+        ".log",
+        ".txt",
     }
 
     # 3. 제외할 폴더명 (검색하고 싶지 않은 폴더)

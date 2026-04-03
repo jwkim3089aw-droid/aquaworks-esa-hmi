@@ -271,5 +271,642 @@
                 "ua_node": ""
             }
         }
+    },
+    {
+        "id": 4,
+        "name": "ESA4",
+        "protocol": "modbus",
+        "host": "127.0.0.1",
+        "port": 5023,
+        "unit_id": 1,
+        "ns": "",
+        "tags": {
+            "do": {
+                "mb_type": "Holding",
+                "mb_addr": 0,
+                "ua_node": ""
+            },
+            "ph": {
+                "mb_type": "Holding",
+                "mb_addr": 1,
+                "ua_node": ""
+            },
+            "temp": {
+                "mb_type": "Holding",
+                "mb_addr": 2,
+                "ua_node": ""
+            },
+            "water_flow": {
+                "mb_type": "Holding",
+                "mb_addr": 3,
+                "ua_node": ""
+            },
+            "mlss": {
+                "mb_type": "Holding",
+                "mb_addr": 4,
+                "ua_node": ""
+            },
+            "pump_hz": {
+                "mb_type": "Holding",
+                "mb_addr": 6,
+                "ua_node": ""
+            },
+            "power_curr": {
+                "mb_type": "Holding",
+                "mb_addr": 7,
+                "ua_node": ""
+            },
+            "power_accm": {
+                "mb_type": "Holding",
+                "mb_addr": 9,
+                "ua_node": ""
+            },
+            "emg_status": {
+                "mb_type": "Coil",
+                "mb_addr": 0,
+                "ua_node": ""
+            },
+            "pump_power": {
+                "mb_type": "Coil",
+                "mb_addr": 1,
+                "ua_node": ""
+            },
+            "pump_auto": {
+                "mb_type": "Coil",
+                "mb_addr": 2,
+                "ua_node": ""
+            },
+            "valve_power": {
+                "mb_type": "Coil",
+                "mb_addr": 3,
+                "ua_node": ""
+            },
+            "set_hz": {
+                "mb_type": "Holding",
+                "mb_addr": 29,
+                "ua_node": ""
+            },
+            "valve_pos": {
+                "mb_type": "Holding",
+                "mb_addr": 30,
+                "ua_node": ""
+            },
+            "device_id": {
+                "mb_type": "Holding",
+                "mb_addr": 49,
+                "ua_node": ""
+            },
+            "exception_code": {
+                "mb_type": "Holding",
+                "mb_addr": 52,
+                "ua_node": ""
+            }
+        }
+    },
+    {
+        "id": 5,
+        "name": "ESA5",
+        "protocol": "modbus",
+        "host": "127.0.0.1",
+        "port": 5024,
+        "unit_id": 1,
+        "ns": "",
+        "tags": {
+            "do": {
+                "mb_type": "Holding",
+                "mb_addr": 0,
+                "ua_node": ""
+            },
+            "ph": {
+                "mb_type": "Holding",
+                "mb_addr": 1,
+                "ua_node": ""
+            },
+            "temp": {
+                "mb_type": "Holding",
+                "mb_addr": 2,
+                "ua_node": ""
+            },
+            "water_flow": {
+                "mb_type": "Holding",
+                "mb_addr": 3,
+                "ua_node": ""
+            },
+            "mlss": {
+                "mb_type": "Holding",
+                "mb_addr": 4,
+                "ua_node": ""
+            },
+            "pump_hz": {
+                "mb_type": "Holding",
+                "mb_addr": 6,
+                "ua_node": ""
+            },
+            "power_curr": {
+                "mb_type": "Holding",
+                "mb_addr": 7,
+                "ua_node": ""
+            },
+            "power_accm": {
+                "mb_type": "Holding",
+                "mb_addr": 9,
+                "ua_node": ""
+            },
+            "emg_status": {
+                "mb_type": "Coil",
+                "mb_addr": 0,
+                "ua_node": ""
+            },
+            "pump_power": {
+                "mb_type": "Coil",
+                "mb_addr": 1,
+                "ua_node": ""
+            },
+            "pump_auto": {
+                "mb_type": "Coil",
+                "mb_addr": 2,
+                "ua_node": ""
+            },
+            "valve_power": {
+                "mb_type": "Coil",
+                "mb_addr": 3,
+                "ua_node": ""
+            },
+            "set_hz": {
+                "mb_type": "Holding",
+                "mb_addr": 29,
+                "ua_node": ""
+            },
+            "valve_pos": {
+                "mb_type": "Holding",
+                "mb_addr": 30,
+                "ua_node": ""
+            },
+            "device_id": {
+                "mb_type": "Holding",
+                "mb_addr": 49,
+                "ua_node": ""
+            },
+            "exception_code": {
+                "mb_type": "Holding",
+                "mb_addr": 52,
+                "ua_node": ""
+            }
+        }
+    },
+    {
+        "id": 6,
+        "name": "ESA6",
+        "protocol": "modbus",
+        "host": "127.0.0.1",
+        "port": 5025,
+        "unit_id": 1,
+        "ns": "",
+        "tags": {
+            "do": {
+                "mb_type": "Holding",
+                "mb_addr": 0,
+                "ua_node": ""
+            },
+            "ph": {
+                "mb_type": "Holding",
+                "mb_addr": 1,
+                "ua_node": ""
+            },
+            "temp": {
+                "mb_type": "Holding",
+                "mb_addr": 2,
+                "ua_node": ""
+            },
+            "water_flow": {
+                "mb_type": "Holding",
+                "mb_addr": 3,
+                "ua_node": ""
+            },
+            "mlss": {
+                "mb_type": "Holding",
+                "mb_addr": 4,
+                "ua_node": ""
+            },
+            "pump_hz": {
+                "mb_type": "Holding",
+                "mb_addr": 6,
+                "ua_node": ""
+            },
+            "power_curr": {
+                "mb_type": "Holding",
+                "mb_addr": 7,
+                "ua_node": ""
+            },
+            "power_accm": {
+                "mb_type": "Holding",
+                "mb_addr": 9,
+                "ua_node": ""
+            },
+            "emg_status": {
+                "mb_type": "Coil",
+                "mb_addr": 0,
+                "ua_node": ""
+            },
+            "pump_power": {
+                "mb_type": "Coil",
+                "mb_addr": 1,
+                "ua_node": ""
+            },
+            "pump_auto": {
+                "mb_type": "Coil",
+                "mb_addr": 2,
+                "ua_node": ""
+            },
+            "valve_power": {
+                "mb_type": "Coil",
+                "mb_addr": 3,
+                "ua_node": ""
+            },
+            "set_hz": {
+                "mb_type": "Holding",
+                "mb_addr": 29,
+                "ua_node": ""
+            },
+            "valve_pos": {
+                "mb_type": "Holding",
+                "mb_addr": 30,
+                "ua_node": ""
+            },
+            "device_id": {
+                "mb_type": "Holding",
+                "mb_addr": 49,
+                "ua_node": ""
+            },
+            "exception_code": {
+                "mb_type": "Holding",
+                "mb_addr": 52,
+                "ua_node": ""
+            }
+        }
+    },
+    {
+        "id": 7,
+        "name": "ESA7",
+        "protocol": "modbus",
+        "host": "127.0.0.1",
+        "port": 5026,
+        "unit_id": 1,
+        "ns": "",
+        "tags": {
+            "do": {
+                "mb_type": "Holding",
+                "mb_addr": 0,
+                "ua_node": ""
+            },
+            "ph": {
+                "mb_type": "Holding",
+                "mb_addr": 1,
+                "ua_node": ""
+            },
+            "temp": {
+                "mb_type": "Holding",
+                "mb_addr": 2,
+                "ua_node": ""
+            },
+            "water_flow": {
+                "mb_type": "Holding",
+                "mb_addr": 3,
+                "ua_node": ""
+            },
+            "mlss": {
+                "mb_type": "Holding",
+                "mb_addr": 4,
+                "ua_node": ""
+            },
+            "pump_hz": {
+                "mb_type": "Holding",
+                "mb_addr": 6,
+                "ua_node": ""
+            },
+            "power_curr": {
+                "mb_type": "Holding",
+                "mb_addr": 7,
+                "ua_node": ""
+            },
+            "power_accm": {
+                "mb_type": "Holding",
+                "mb_addr": 9,
+                "ua_node": ""
+            },
+            "emg_status": {
+                "mb_type": "Coil",
+                "mb_addr": 0,
+                "ua_node": ""
+            },
+            "pump_power": {
+                "mb_type": "Coil",
+                "mb_addr": 1,
+                "ua_node": ""
+            },
+            "pump_auto": {
+                "mb_type": "Coil",
+                "mb_addr": 2,
+                "ua_node": ""
+            },
+            "valve_power": {
+                "mb_type": "Coil",
+                "mb_addr": 3,
+                "ua_node": ""
+            },
+            "set_hz": {
+                "mb_type": "Holding",
+                "mb_addr": 29,
+                "ua_node": ""
+            },
+            "valve_pos": {
+                "mb_type": "Holding",
+                "mb_addr": 30,
+                "ua_node": ""
+            },
+            "device_id": {
+                "mb_type": "Holding",
+                "mb_addr": 49,
+                "ua_node": ""
+            },
+            "exception_code": {
+                "mb_type": "Holding",
+                "mb_addr": 52,
+                "ua_node": ""
+            }
+        }
+    },
+    {
+        "id": 8,
+        "name": "ESA8",
+        "protocol": "modbus",
+        "host": "127.0.0.1",
+        "port": 5027,
+        "unit_id": 1,
+        "ns": "",
+        "tags": {
+            "do": {
+                "mb_type": "Holding",
+                "mb_addr": 0,
+                "ua_node": ""
+            },
+            "ph": {
+                "mb_type": "Holding",
+                "mb_addr": 1,
+                "ua_node": ""
+            },
+            "temp": {
+                "mb_type": "Holding",
+                "mb_addr": 2,
+                "ua_node": ""
+            },
+            "water_flow": {
+                "mb_type": "Holding",
+                "mb_addr": 3,
+                "ua_node": ""
+            },
+            "mlss": {
+                "mb_type": "Holding",
+                "mb_addr": 4,
+                "ua_node": ""
+            },
+            "pump_hz": {
+                "mb_type": "Holding",
+                "mb_addr": 6,
+                "ua_node": ""
+            },
+            "power_curr": {
+                "mb_type": "Holding",
+                "mb_addr": 7,
+                "ua_node": ""
+            },
+            "power_accm": {
+                "mb_type": "Holding",
+                "mb_addr": 9,
+                "ua_node": ""
+            },
+            "emg_status": {
+                "mb_type": "Coil",
+                "mb_addr": 0,
+                "ua_node": ""
+            },
+            "pump_power": {
+                "mb_type": "Coil",
+                "mb_addr": 1,
+                "ua_node": ""
+            },
+            "pump_auto": {
+                "mb_type": "Coil",
+                "mb_addr": 2,
+                "ua_node": ""
+            },
+            "valve_power": {
+                "mb_type": "Coil",
+                "mb_addr": 3,
+                "ua_node": ""
+            },
+            "set_hz": {
+                "mb_type": "Holding",
+                "mb_addr": 29,
+                "ua_node": ""
+            },
+            "valve_pos": {
+                "mb_type": "Holding",
+                "mb_addr": 30,
+                "ua_node": ""
+            },
+            "device_id": {
+                "mb_type": "Holding",
+                "mb_addr": 49,
+                "ua_node": ""
+            },
+            "exception_code": {
+                "mb_type": "Holding",
+                "mb_addr": 52,
+                "ua_node": ""
+            }
+        }
+    },
+    {
+        "id": 9,
+        "name": "ESA9",
+        "protocol": "modbus",
+        "host": "127.0.0.1",
+        "port": 5028,
+        "unit_id": 1,
+        "ns": "",
+        "tags": {
+            "do": {
+                "mb_type": "Holding",
+                "mb_addr": 0,
+                "ua_node": ""
+            },
+            "ph": {
+                "mb_type": "Holding",
+                "mb_addr": 1,
+                "ua_node": ""
+            },
+            "temp": {
+                "mb_type": "Holding",
+                "mb_addr": 2,
+                "ua_node": ""
+            },
+            "water_flow": {
+                "mb_type": "Holding",
+                "mb_addr": 3,
+                "ua_node": ""
+            },
+            "mlss": {
+                "mb_type": "Holding",
+                "mb_addr": 4,
+                "ua_node": ""
+            },
+            "pump_hz": {
+                "mb_type": "Holding",
+                "mb_addr": 6,
+                "ua_node": ""
+            },
+            "power_curr": {
+                "mb_type": "Holding",
+                "mb_addr": 7,
+                "ua_node": ""
+            },
+            "power_accm": {
+                "mb_type": "Holding",
+                "mb_addr": 9,
+                "ua_node": ""
+            },
+            "emg_status": {
+                "mb_type": "Coil",
+                "mb_addr": 0,
+                "ua_node": ""
+            },
+            "pump_power": {
+                "mb_type": "Coil",
+                "mb_addr": 1,
+                "ua_node": ""
+            },
+            "pump_auto": {
+                "mb_type": "Coil",
+                "mb_addr": 2,
+                "ua_node": ""
+            },
+            "valve_power": {
+                "mb_type": "Coil",
+                "mb_addr": 3,
+                "ua_node": ""
+            },
+            "set_hz": {
+                "mb_type": "Holding",
+                "mb_addr": 29,
+                "ua_node": ""
+            },
+            "valve_pos": {
+                "mb_type": "Holding",
+                "mb_addr": 30,
+                "ua_node": ""
+            },
+            "device_id": {
+                "mb_type": "Holding",
+                "mb_addr": 49,
+                "ua_node": ""
+            },
+            "exception_code": {
+                "mb_type": "Holding",
+                "mb_addr": 52,
+                "ua_node": ""
+            }
+        }
+    },
+    {
+        "id": 10,
+        "name": "ESA10",
+        "protocol": "modbus",
+        "host": "127.0.0.1",
+        "port": 5029,
+        "unit_id": 1,
+        "ns": "",
+        "tags": {
+            "do": {
+                "mb_type": "Holding",
+                "mb_addr": 0,
+                "ua_node": ""
+            },
+            "ph": {
+                "mb_type": "Holding",
+                "mb_addr": 1,
+                "ua_node": ""
+            },
+            "temp": {
+                "mb_type": "Holding",
+                "mb_addr": 2,
+                "ua_node": ""
+            },
+            "water_flow": {
+                "mb_type": "Holding",
+                "mb_addr": 3,
+                "ua_node": ""
+            },
+            "mlss": {
+                "mb_type": "Holding",
+                "mb_addr": 4,
+                "ua_node": ""
+            },
+            "pump_hz": {
+                "mb_type": "Holding",
+                "mb_addr": 6,
+                "ua_node": ""
+            },
+            "power_curr": {
+                "mb_type": "Holding",
+                "mb_addr": 7,
+                "ua_node": ""
+            },
+            "power_accm": {
+                "mb_type": "Holding",
+                "mb_addr": 9,
+                "ua_node": ""
+            },
+            "emg_status": {
+                "mb_type": "Coil",
+                "mb_addr": 0,
+                "ua_node": ""
+            },
+            "pump_power": {
+                "mb_type": "Coil",
+                "mb_addr": 1,
+                "ua_node": ""
+            },
+            "pump_auto": {
+                "mb_type": "Coil",
+                "mb_addr": 2,
+                "ua_node": ""
+            },
+            "valve_power": {
+                "mb_type": "Coil",
+                "mb_addr": 3,
+                "ua_node": ""
+            },
+            "set_hz": {
+                "mb_type": "Holding",
+                "mb_addr": 29,
+                "ua_node": ""
+            },
+            "valve_pos": {
+                "mb_type": "Holding",
+                "mb_addr": 30,
+                "ua_node": ""
+            },
+            "device_id": {
+                "mb_type": "Holding",
+                "mb_addr": 49,
+                "ua_node": ""
+            },
+            "exception_code": {
+                "mb_type": "Holding",
+                "mb_addr": 52,
+                "ua_node": ""
+            }
+        }
     }
 ]

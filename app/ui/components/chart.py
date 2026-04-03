@@ -41,8 +41,7 @@ def create_chart_section(
             "backgroundColor": "rgba(17, 24, 39, 0.9)",
             "borderColor": "#374151",
             "textStyle": {"color": "#F3F4F6", "fontSize": 12},
-            "formatter": """
-            function (params) {
+            "formatter": """:function (params) {
                 if (!params || !params.length) return '';
                 var lines = [];
                 var first = params[0];
@@ -59,8 +58,7 @@ def create_chart_section(
                     lines.push(p.marker + ' ' + p.seriesName + ': ' + v);
                 }
                 return lines.join('<br/>');
-            }
-            """,
+            }""",
         },
         "xAxis": {
             "type": "category",

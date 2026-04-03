@@ -32,7 +32,7 @@
         "**/.pytest_cache": true,
         "**/dist": true,
         "**/build": true,
-        "**/logs": true
+        "**/.logs": true
     },
     "python.defaultInterpreterPath": ".venv/Scripts/python.exe",
     "python.analysis.typeCheckingMode": "standard",

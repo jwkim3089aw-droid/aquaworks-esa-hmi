@@ -4,20 +4,36 @@ import math
 import logging
 from typing import Dict, Tuple, Any, Optional
 
+# 🚀 [ADD] 중앙 통제식 설정 임포트
+from app.core.config import get_settings
+
 
 # ---------------------------------------------------------------------------
 # 로깅 설정
 # ---------------------------------------------------------------------------
 def setup_logging() -> logging.Logger:
-    os.makedirs("logs", exist_ok=True)
-    fh = logging.FileHandler("logs/ui.app.log", encoding="utf-8")
+    settings = get_settings()
+
+    # 1. 파일명 정규화 (UI/Web 전용 로그임을 명확히)
+    log_file_path = settings.APP_LOG_DIR / "web_ui.log"
+
+    fh = logging.FileHandler(log_file_path, encoding="utf-8")
     fh.setLevel(logging.INFO)
-    fmt = logging.Formatter("[%(asctime)s] [%(name)s] %(message)s")
+
+    # 2. 정석 포맷: [시간] [로그레벨] [모듈명] 메시지
+    fmt = logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s")
     fh.setFormatter(fmt)
-    root_logger = logging.getLogger()
-    root_logger.addHandler(fh)
-    root_logger.setLevel(logging.INFO)
+
+    # 3. Root Logger가 아닌, 'esa_hmi.ui' 전용 로거에만 핸들러 장착 (완벽한 격리)
     logger = logging.getLogger("esa_hmi.ui")
+    logger.setLevel(logging.INFO)
+
+    if not logger.handlers:
+        logger.addHandler(fh)
+
+    # (선택) UI 로그가 Root로 올라가서 다른 파일에 중복 기록되는 것을 차단
+    logger.propagate = False
+
     return logger
 
 

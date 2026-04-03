@@ -30,7 +30,6 @@ def create_control_section(
         el.on("click.stop", lambda _e: on_click())
         return el
 
-    # 🎯 [핵심] on_change 콜백 추가 (버튼 없이 숫자 변경만으로 즉시 적용)
     def number_box(
         value: float,
         lo: float,
@@ -130,7 +129,7 @@ def create_control_section(
 
             init_state = get_sys_state(current_rtu["id"])
 
-            # 🎯 1. Target DO (APPLY 버튼 완전 삭제, 하나의 버튼만 남김)
+            # 1. Target DO
             with ui.element("div").classes(
                 GRID_Template + " h-[40px] border-b border-[#1F2937]/50"
             ):
@@ -140,13 +139,20 @@ def create_control_section(
                     "text-sm text-cyan-400 font-mono font-bold"
                 )
 
-                # 숫자 바뀌면 바로 백엔드 적용 함수
                 def _on_do_change(val: float):
                     state = get_sys_state(current_rtu["id"])
                     state.target_do = val
                     sync_state["target_do"] = val
                     if lbl_set_do:
                         lbl_set_do.text = f"{val:.1f}"
+
+                    # 🚀 [FIX] UI에서 값이 변경되면 백엔드 큐에 넣어 Manager가 알게 함
+                    try:
+                        asyncio.create_task(
+                            command_q.put((current_rtu["id"], "target_do", float(val)))
+                        )
+                    except Exception as e:
+                        log.warning(f"Target DO command failed: {val} ({e})")
 
                 with ui.row().classes("justify-center"):
                     do_num = number_box(
@@ -203,7 +209,6 @@ def create_control_section(
                     lock_targets.append(valve_num)
 
                 with ui.row().classes("justify-center"):
-
                     async def _apply_valve(val: float) -> None:
                         rtu_id = current_rtu["id"]
                         try:
@@ -231,7 +236,6 @@ def create_control_section(
                     lock_targets.append(hz_num)
 
                 with ui.row().classes("justify-center items-center gap-2"):
-
                     async def _apply_pump_hz(val: float) -> None:
                         rtu_id = current_rtu["id"]
                         try:

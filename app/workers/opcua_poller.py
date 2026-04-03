@@ -3,6 +3,7 @@ import asyncio
 import logging
 import math
 import os
+import sys
 from time import time
 from asyncua import Client, ua
 from sqlalchemy import select
@@ -12,10 +13,12 @@ from app.core.db import engine
 from app.models.settings import ConnectionConfig, BackendType
 from app.stream.state import ingest_q, command_q, Sample
 
-# 로그 설정
 logging.getLogger("asyncua").setLevel(logging.WARNING)
 logging.getLogger("uaprocessor").setLevel(logging.WARNING)
-logger = logging.getLogger("OPCUA_POLLER")
+
+# 🚀 [정석] 이름만 선언합니다.
+logger = logging.getLogger("telemetry.opcua")
+logger.setLevel(logging.INFO)
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
@@ -62,17 +65,12 @@ async def run_opcua_poller():
             async with Client(url=url) as client:
                 logger.info(f"✅ Connected to {url}")
 
-                # 네임스페이스 인덱스
                 try:
                     idx = await client.get_namespace_index(ns_uri)
                 except:
                     idx = 2
 
-                # -----------------------------------------------------
-                # [1] 노드 찾기 (다양한 이름 시도)
-                # -----------------------------------------------------
                 def find_node(candidates):
-                    """여러 이름 중 하나라도 걸리면 그 노드 반환"""
                     for name in candidates:
                         try:
                             node = client.get_node(f"ns={idx};s={name}")
@@ -81,8 +79,6 @@ async def run_opcua_poller():
                             continue
                     return None
 
-                # 읽기 매핑 (가장 중요한 부분)
-                # 여기서 찾은 노드 객체를 쓰기 때도 그대로 쓸 것임!
                 read_map = {}
                 read_map["do"] = find_node(["DO", "do"])
                 read_map["mlss"] = find_node(["MLSS", "mlss"])
@@ -91,26 +87,16 @@ async def run_opcua_poller():
                 read_map["air_flow"] = find_node(["AirFlow", "airflow"])
                 read_map["power"] = find_node(["Power", "power"])
                 read_map["energy"] = find_node(["Energy", "energy"])
-
-                # 제어 변수들 (펌프, 밸브)
                 read_map["pump_hz"] = find_node(["PumpHz", "pump_hz", "PumpSpeed"])
-
-                # [핵심 수정] 밸브 노드 찾기 우선순위: Valve -> ValvePos
-                # 이전에 작동했던 이름인 "Valve"를 먼저 찾게 함
                 read_map["valve_pos"] = find_node(["Valve", "ValvePos", "valve", "valve_pos"])
 
-                # -----------------------------------------------------
-                # [2] 쓰기 매핑 (읽기 노드 재사용 -> 불일치 해결)
-                # -----------------------------------------------------
                 write_map = {}
-
                 if read_map["pump_hz"]:
                     write_map["set_hz"] = read_map["pump_hz"]
 
                 if read_map["valve_pos"]:
-                    # HMI가 보내는 키("valve_pos")를 실제 찾은 노드에 연결
                     write_map["valve_pos"] = read_map["valve_pos"]
-                    write_map["set_air"] = read_map["valve_pos"]  # 호환성
+                    write_map["set_air"] = read_map["valve_pos"]
                     logger.info(f"🔑 Valve Mapped to Node: {read_map['valve_pos']}")
                 else:
                     logger.error("❌ CRITICAL: Valve Node Not Found on Server!")
@@ -118,7 +104,6 @@ async def run_opcua_poller():
                 logger.info("Looping...")
 
                 while True:
-                    # A. [WRITE] 명령 처리
                     while not command_q.empty():
                         key, val = await command_q.get()
 
@@ -126,7 +111,6 @@ async def run_opcua_poller():
                         if target_node:
                             try:
                                 f_val = float(val)
-                                # 범위 제한
                                 if key in ["valve_pos", "set_air"]:
                                     f_val = max(0.0, min(100.0, f_val))
                                 elif key == "set_hz":
@@ -142,9 +126,7 @@ async def run_opcua_poller():
 
                         command_q.task_done()
 
-                    # B. [READ] 데이터 읽기
                     try:
-                        # 매핑된 노드만 읽기 리스트 생성
                         active_tags = [tag for tag, node in read_map.items() if node is not None]
                         nodes_to_read = [read_map[tag] for tag in active_tags]
 
@@ -178,4 +160,7 @@ async def run_opcua_poller():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO, format="[%(asctime)s] %(levelname)s [%(name)s] %(message)s"
+    )
     asyncio.run(run_opcua_poller())

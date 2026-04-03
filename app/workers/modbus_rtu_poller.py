@@ -5,20 +5,19 @@ import asyncio
 import inspect
 import logging
 import random
+import sys
 import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, List, Optional, TypeVar, overload, TypeGuard
 
-# Pymodbus & Database Imports
 from pymodbus.client import AsyncModbusSerialClient
 from pymodbus.framer import FramerType
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-# Project Imports
 from app.core.db import engine
 from app.models.settings import ConnectionConfig
-from app.stream.state import ingest_q, db_q, Sample, sys_state  # sys_state 공유
+from app.stream.state import ingest_q, db_q, Sample, sys_state
 from app.adapters.plc.modbus.map import (
     COIL_EMERGENCY,
     COIL_PUMP_POWER,
@@ -31,20 +30,17 @@ from app.adapters.plc.modbus.map import (
     HR_PUMP_FR_1,
 )
 
-logger = logging.getLogger("esa_hmi.modbus_rtu")
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s"))
-    logger.addHandler(handler)
+# 🚀 [정석] 복잡한 핸들러 제거하고 이름만 부여합니다.
+logger = logging.getLogger("telemetry.modbus_rtu")
 logger.setLevel(logging.INFO)
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
 )
-
 T = TypeVar("T")
 
 
+# ... (기존 _is_awaitable 부터 클래스 로직 전체 동일, 그대로 유지) ...
 def _is_awaitable(x: object) -> TypeGuard[Awaitable[Any]]:
     return inspect.isawaitable(x)
 
@@ -99,7 +95,7 @@ class ConfigProvider:
             return None
 
         conf = None
-        if config and config.host:  # host(포트)가 비어있으면 연결하지 않음
+        if config and config.host:
             conf = {
                 "port": str(config.host).strip(),
                 "baudrate": int(config.port or 9600),
@@ -113,7 +109,6 @@ class ConfigProvider:
         self._cache = _ConfCache(value=None, ts=0.0)
 
 
-# 전역 캐시 인스턴스 (manager.py에서 제어 가능)
 global_config_provider = ConfigProvider()
 
 
@@ -301,7 +296,6 @@ class ModbusRTUPoller:
                 pass
 
     async def _read_phase(self, conf: dict) -> None:
-        """PCB 상태를 읽어와 UI(sys_state)에 반영"""
         await self._ensure_client(conf)
         if not getattr(self.client, "connected", False):
             return
@@ -309,13 +303,10 @@ class ModbusRTUPoller:
         unit_id = conf["unit_id"]
         t0 = time.monotonic()
 
-        # 1. Coils (상태 읽기)
         rc = await asyncio.wait_for(
             _call_modbus(self.client.read_coils, unit_id=unit_id, address=0, count=COIL_SIZE),
             timeout=self.read_timeout + 0.2,
         )
-
-        # 2. Holding Registers (데이터 읽기)
         rr = await asyncio.wait_for(
             _call_modbus(
                 self.client.read_holding_registers, unit_id=unit_id, address=0, count=HR_SIZE
@@ -331,9 +322,6 @@ class ModbusRTUPoller:
         coils = rc.bits[:COIL_SIZE]
         regs = rr.registers[:HR_SIZE]
 
-        # ----------------------------------------------------
-        # 🚨 비상/알람 로직
-        # ----------------------------------------------------
         if coils[COIL_EMERGENCY]:
             logger.error("🚨 비상 정지 상태 감지됨!")
 
@@ -343,16 +331,11 @@ class ModbusRTUPoller:
         if exc_val & 0x0004:
             self._rate_limited_warn("⚠️ 전력계 통신 에러 발생!")
 
-        # ----------------------------------------------------
-        # 🌐 UI(sys_state)에 상태 반영
-        # ----------------------------------------------------
-        # UI에서 이 값들을 감시하여 화면에 띄울 수 있습니다.
         setattr(sys_state, "pump_power", coils[COIL_PUMP_POWER])
         setattr(sys_state, "pump_auto", coils[COIL_PUMP_AUTO])
         setattr(sys_state, "valve_power", coils[COIL_VALVE_POWER])
         setattr(sys_state, "valve_auto", coils[COIL_VALVE_AUTO])
 
-        # (선택) 하위 호환성을 위해 기존 AI를 위한 더미 Sample 큐 삽입
         dummy_pump_hz = regs[HR_PUMP_FR_1] / 10.0 if HR_PUMP_FR_1 < len(regs) else 0.0
         sample = Sample(
             ts=time.time(),
@@ -443,4 +426,10 @@ async def modbus_poller_loop() -> None:
 
 
 if __name__ == "__main__":
+    # 이 파일을 단독으로 실행할 때만 콘솔에 뿌리도록 정석 처리
+    logging.basicConfig(
+        level=logging.INFO, format="[%(asctime)s] %(levelname)s [%(name)s] %(message)s"
+    )
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(modbus_poller_loop())
